@@ -17,6 +17,18 @@ spec:
         {{- include "mini-mes.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: api
     spec:
+      # api는 시작할 때 DB에 연결(create_all 등)하므로, DB가 연결을 받을 때까지 기다린다
+      # (docker-compose의 depends_on: condition: service_healthy 에 해당)
+      initContainers:
+        - name: wait-for-db
+          image: {{ .Values.db.image }}
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h {{ include "mini-mes.fullname" . }}-db -p {{ .Values.db.port }} -U {{ .Values.db.user }} -d {{ .Values.db.database }}; do
+                echo "DB 대기 중..."; sleep 2
+              done
       containers:
         - name: api
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"

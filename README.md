@@ -246,7 +246,7 @@ ruff check anomaly-worker evaluate
 
 - DB 접속 정보(`POSTGRES_USER`/`PASSWORD`/`DB`, `DATABASE_URL`)는 Secret(`templates/secret.yaml`)로 관리
 - DB 저장소는 PersistentVolumeClaim(`templates/db-pvc.yaml`, 기본 1Gi) — Pod를 지워도 데이터가 유지되는 것까지 확인함
-- api는 `/health` 기반 readiness/liveness probe 설정
+- api는 `/health` 기반 readiness/liveness probe 설정, DB가 연결을 받을 때까지 기다리는 initContainer(`wait-for-db`, `pg_isready`) — compose의 `depends_on: condition: service_healthy`에 해당
 - anomaly-worker(`templates/anomaly-worker-*.yaml`, `values.yaml`의 `anomalyWorker.enabled`로 켜고 끔)
   - 모델은 PVC(`<release>-anomaly-models`, 기본 100Mi)의 `/models`에 저장 — 파드를 지워도 모델이 유지되는 것까지 확인함
   - 판정 중복을 막기 위해 replicas 1, PVC가 ReadWriteOnce라 `Recreate` 전략
@@ -294,7 +294,7 @@ k3d cluster delete mini-mes
 
 minikube를 쓴다면 2)의 `k3d image import` 대신 `minikube image load mini-mes-api:latest mini-mes-anomaly-worker:latest`를 사용하면 됩니다.
 
-**확인된 동작:** DB 파드가 준비되기 전에 api 파드가 DB 연결 실패로 몇 차례 재시작될 수 있는데(readiness/liveness probe와 별개로, 앱이 시작 시 DB에 연결을 시도하기 때문), Kubernetes가 자동으로 재시도하면서 DB가 준비되면 정상화됩니다. `docker-compose.yml`의 `depends_on: condition: service_healthy`에 해당하는 대기 로직은 아직 차트에 없습니다. anomaly-worker는 DB 연결 실패를 로그로 남기고 재시도하므로 재시작 없이(RESTARTS 0) 정상화됩니다.
+**확인된 동작:** 차트 0.3.0까지는 api가 시작할 때 DB에 연결하는데 DB 파드가 아직 준비되지 않아 api 파드가 3회 재시작됐습니다. 0.3.1에서 `wait-for-db` initContainer를 추가한 뒤에는 initContainer가 `no response` 동안 기다렸다가 `accepting connections` 이후 api를 시작해 **RESTARTS 0**, api 로그의 DB 연결 오류 0건을 k3d에서 확인했습니다. anomaly-worker는 DB 연결 실패를 로그로 남기고 재시도하므로 원래부터 재시작 없이 정상화됩니다.
 
 **k3d 검증 결과** (2026-09-28, k3d v5.7.4 / k3s v1.30.4 / Helm v3.16.2, 차트 0.3.0)
 
