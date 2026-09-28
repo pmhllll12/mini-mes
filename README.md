@@ -243,11 +243,15 @@ ruff check anomaly-worker evaluate
 
 ## K3s/Helm (로컬 검증)
 
-`charts/mini-mes/`에 api·db를 옮기는 Helm 차트가 있습니다. 어느 서버에 배포할지는 아직 정하지 않아, 이 단계에서는 k3d(또는 minikube)로 로컬 검증만 합니다.
+`charts/mini-mes/`에 api·db·이상탐지 워커를 옮기는 Helm 차트가 있습니다. 어느 서버에 배포할지는 아직 정하지 않아, 이 단계에서는 k3d(또는 minikube)로 로컬 검증만 합니다.
 
 - DB 접속 정보(`POSTGRES_USER`/`PASSWORD`/`DB`, `DATABASE_URL`)는 Secret(`templates/secret.yaml`)로 관리
 - DB 저장소는 PersistentVolumeClaim(`templates/db-pvc.yaml`, 기본 1Gi) — Pod를 지워도 데이터가 유지되는 것까지 확인함
 - api는 `/health` 기반 readiness/liveness probe 설정
+- anomaly-worker(`templates/anomaly-worker-*.yaml`, `values.yaml`의 `anomalyWorker.enabled`로 켜고 끔)
+  - 모델은 PVC(`<release>-anomaly-models`, 기본 100Mi)의 `/models`에 저장 — 파드를 지워도 모델이 유지되는 것까지 확인함
+  - 판정 중복을 막기 위해 replicas 1, PVC가 ReadWriteOnce라 `Recreate` 전략
+  - 워커는 DB 연결 실패·모델 없음에도 죽지 않으므로 probe는 메트릭 포트(9100) TCP 확인. `<release>-anomaly-worker` Service로 `/metrics` 노출 (차트에 Prometheus는 아직 없음)
 - `charts/mini-mes/files/schema.sql`은 `db/schema.sql`의 복사본입니다(Helm이 차트 밖 파일을 직접 읽지 못해 ConfigMap용으로 넣어둠). **스키마를 바꾸면 두 파일을 함께 수정해야 합니다.**
 
 ### k3d로 검증하기
@@ -256,26 +260,35 @@ ruff check anomaly-worker evaluate
 # 1) 클러스터 생성
 k3d cluster create mini-mes
 
-# 2) API 이미지 빌드 후 클러스터로 반입 (레지스트리 없이 로컬 이미지를 그대로 사용)
+# 2) API·워커 이미지 빌드 후 클러스터로 반입 (레지스트리 없이 로컬 이미지를 그대로 사용)
 docker build -t mini-mes-api:latest ./api
-k3d image import mini-mes-api:latest -c mini-mes
+docker build -t mini-mes-anomaly-worker:latest ./anomaly-worker
+k3d image import mini-mes-api:latest mini-mes-anomaly-worker:latest -c mini-mes
 
 # 3) 차트 설치
 helm install mini-mes charts/mini-mes
 
 # 4) 파드가 뜰 때까지 대기 후 확인
 kubectl get pods -w
-kubectl port-forward svc/mini-mes-api 8001:8001
+kubectl port-forward svc/mini-mes-api 8001:8001   # docker compose가 8001을 쓰고 있으면 18001:8001 등으로 변경
 curl http://localhost:8001/health
 
-# 5) 정리
+# 5) 이상탐지 모델 학습 (정상 데이터만 - 위 "학습" 절과 같은 원칙, 모델은 PVC에 저장)
+TRAIN_SINCE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+(cd simulator && python3 simulate.py --api-url http://localhost:8001 --interval 0 --anomaly-rate 0 --max-ticks 300)
+kubectl exec deploy/mini-mes-anomaly-worker -- python train.py --since "$TRAIN_SINCE"
+kubectl logs deploy/mini-mes-anomaly-worker -f   # 모델 로드 → 판정 로그 확인
+
+# 6) 정리
 helm uninstall mini-mes
 k3d cluster delete mini-mes
 ```
 
-minikube를 쓴다면 2)의 `k3d image import` 대신 `minikube image load mini-mes-api:latest`를 사용하면 됩니다.
+minikube를 쓴다면 2)의 `k3d image import` 대신 `minikube image load mini-mes-api:latest mini-mes-anomaly-worker:latest`를 사용하면 됩니다.
 
-**확인된 동작:** DB 파드가 준비되기 전에 api 파드가 DB 연결 실패로 몇 차례 재시작될 수 있는데(readiness/liveness probe와 별개로, 앱이 시작 시 DB에 연결을 시도하기 때문), Kubernetes가 자동으로 재시도하면서 DB가 준비되면 정상화됩니다. `docker-compose.yml`의 `depends_on: condition: service_healthy`에 해당하는 대기 로직은 아직 차트에 없습니다.
+**확인된 동작:** DB 파드가 준비되기 전에 api 파드가 DB 연결 실패로 몇 차례 재시작될 수 있는데(readiness/liveness probe와 별개로, 앱이 시작 시 DB에 연결을 시도하기 때문), Kubernetes가 자동으로 재시도하면서 DB가 준비되면 정상화됩니다. `docker-compose.yml`의 `depends_on: condition: service_healthy`에 해당하는 대기 로직은 아직 차트에 없습니다. anomaly-worker는 DB 연결 실패를 로그로 남기고 재시도하므로 재시작 없이(RESTARTS 0) 정상화됩니다.
+
+**워커 검증 결과 (2026-09-28, k3d v5.7.4 / k3s v1.30.4 / Helm v3.16.2):** 설치 직후 `모델 없음` 대기 → 정상 데이터 900건(`--anomaly-rate 0`)으로 `kubectl exec` 학습 → 이상 섞인 데이터 300건을 설비별 100건씩 판정해 `/anomalies`에 기록 → 워커 파드를 삭제해 새 파드가 떠도 PVC에서 모델 3개를 다시 로드하고 이미 판정한 건은 다시 기록하지 않음 → Service로 `mes_anomaly_threshold`, `mes_anomaly_model_loaded` 메트릭 조회. 정적 검증: `helm lint` 통과, 렌더링된 리소스 10개 kubeconform(strict) 통과.
 
 ## 기술 스택
 
@@ -289,7 +302,7 @@ minikube를 쓴다면 2)의 `k3d image import` 대신 `minikube image load mini-
 | 1주 | 스키마 설계, FastAPI 수집/조회 API, 시뮬레이터, 다중 설비 조회·CSV export | ✅ |
 | 2주 | `quality_event`에 `production_log_id`(nullable FK) 추가, 설비별·불량유형별 불량 집계 API(`/quality/defect-summary`), 시뮬레이터가 불량 발생 시 연결된 품질 이벤트도 함께 전송, 설비 status 자동 갱신 | ✅ |
 | 3주 | Prometheus + Grafana 모니터링 스택 추가 (`/metrics`, 대시보드 프로비저닝) | ✅ |
-| 4주 | Helm 차트 작성 + k3d 로컬 검증 (Secret/PVC/probe, 서버 배포 대상은 미정) | ✅ |
+| 4주 | Helm 차트 작성 + k3d 로컬 검증 (Secret/PVC/probe, 서버 배포 대상은 미정). 5주차 이후 anomaly-worker(Deployment·모델 PVC·메트릭 Service)도 차트에 추가 | ✅ |
 | 5주 | 이상탐지(예지보전) 워커 추가: 설비별 Isolation Forest(정상 데이터만 학습, 모델은 볼륨 저장), `/anomalies` 조회 API, 워커 메트릭·Grafana "이상 점수 추이" 패널, 시뮬레이터 라벨 기반 성능 평가(가상 데이터 기준 전체 F1 0.602), 워커 단위 테스트·이미지 빌드 CI | ✅ |
 | 6주 | 자연어 질의 API 추가 | |
 | 7주 | Terraform, 문서화·데모 영상 (GitHub Actions CI는 완료) | |
@@ -305,7 +318,7 @@ minikube를 쓴다면 2)의 `k3d image import` 대신 `minikube image load mini-
   - 설비별 모델이라 새 설비를 추가하면 그 설비의 정상 데이터를 모아 재학습해야 하며, 그 전까지 해당 설비는 `모델 없음` 상태로 판정되지 않습니다. 공정 조건이 바뀌어 정상 범위가 달라져도 재학습이 필요합니다(자동 재학습 없음).
   - 학습 데이터가 정상인지는 사람이 학습 구간(`--since`/`--until`)을 지정해서 보장합니다. 실제 현장에서는 "정상만 있는 구간"을 확보하기 어렵습니다.
   - `anomaly_result`에 생산실적 ID가 없어 `(equipment_id, ts)`로 같은 로그인지 판단합니다. 같은 설비에 같은 ts의 로그가 두 건 이상 들어오면 한 건만 판정됩니다.
-  - Helm 차트에는 아직 anomaly-worker가 없습니다 (Docker Compose에서만 동작).
+  - Helm 차트의 워커는 k3d 로컬 검증까지만 했습니다. 차트에 Prometheus/Grafana가 없어 클러스터에서는 워커 메트릭을 수집하지 않습니다.
 
 ## 개발 기간
 

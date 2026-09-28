@@ -1,0 +1,63 @@
+{{- if .Values.anomalyWorker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mini-mes.fullname" . }}-anomaly-worker
+  labels:
+    {{- include "mini-mes.labels" . | nindent 4 }}
+    app.kubernetes.io/component: anomaly-worker
+spec:
+  # 워커는 1개만 (중복 판정 방지), 모델 PVC가 ReadWriteOnce라 Recreate
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "mini-mes.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: anomaly-worker
+  template:
+    metadata:
+      labels:
+        {{- include "mini-mes.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: anomaly-worker
+    spec:
+      containers:
+        - name: anomaly-worker
+          image: "{{ .Values.anomalyWorker.image.repository }}:{{ .Values.anomalyWorker.image.tag }}"
+          imagePullPolicy: {{ .Values.anomalyWorker.image.pullPolicy }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.anomalyWorker.metricsPort }}
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mini-mes.fullname" . }}-db
+                  key: DATABASE_URL
+            - name: MODEL_DIR
+              value: /models
+            - name: INTERVAL_SEC
+              value: {{ .Values.anomalyWorker.intervalSec | quote }}
+            - name: LOOKBACK_HOURS
+              value: {{ .Values.anomalyWorker.lookbackHours | quote }}
+            - name: METRICS_PORT
+              value: {{ .Values.anomalyWorker.metricsPort | quote }}
+          # 워커는 DB 연결 실패·모델 없음에도 죽지 않고 재시도하므로, 메트릭 서버가 떠 있는지로 판단
+          readinessProbe:
+            tcpSocket:
+              port: metrics
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          volumeMounts:
+            - name: models
+              mountPath: /models
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: {{ include "mini-mes.fullname" . }}-anomaly-models
+{{- end }}

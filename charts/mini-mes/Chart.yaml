@@ -1,6 +1,6 @@
 apiVersion: v2
 name: mini-mes
-description: mini-mes API + PostgreSQL Helm 차트 (로컬 k3d/minikube 검증용)
+description: mini-mes API + 이상탐지 워커 + PostgreSQL Helm 차트 (로컬 k3d/minikube 검증용)
 type: application
-version: 0.1.0
+version: 0.2.0
 appVersion: "0.1.0"

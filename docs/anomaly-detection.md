@@ -16,7 +16,7 @@ permalink: /anomaly-detection/
   - `anomaly_result`에 log_id가 없어(스키마 변경 없음) 생산실적의 `ts`를 그대로 쓰고, `(equipment_id, ts)`로 중복 기록을 막음
   - 학습에 쓴 구간(`train_end` 이전)은 추론하지 않음
   - 모델이 없으면 죽지 않고 `모델 없음` 로그를 남긴 채 대기, 학습이 끝나면 재시작 없이 새 모델을 읽음
-- **저장:** `anomaly_models` 볼륨 — 컨테이너를 재시작해도 유지되며, `docker compose down -v` 시 함께 지워지므로 재학습 필요
+- **저장:** Docker Compose는 `anomaly_models` 볼륨, Helm(k3d)은 PVC — 컨테이너·파드를 재시작해도 유지됨. Compose에서 `docker compose down -v`를 하면 볼륨이 함께 지워지므로 재학습 필요
 - **조회·관측:** `GET /anomalies?equipment_ids=&hours=`, Prometheus 메트릭(`mes_anomaly_score`, `mes_anomaly_threshold`, `mes_anomaly_detected_total` 등), Grafana "이상 점수 추이" 패널
 
 ## 평가 방법
@@ -64,4 +64,4 @@ Isolation Forest는 학습 범위를 벗어난 값을 "얼마나 멀리 벗어�
 - 특징이 단순함 (생산실적 1건 단위 3개 특징, 추세·센서 데이터 없음). 구간당 생산량이 적은 설비는 불량률 변별력이 낮음
 - 설비별 모델이라 새 설비를 추가하거나 공정 조건이 바뀌면 재학습 필요 (자동 재학습 없음)
 - 학습 데이터가 정상인지는 사람이 학습 구간을 지정해서 보장함
-- Helm 차트에는 아직 anomaly-worker가 없음 (Docker Compose에서만 동작)
+- Helm 차트의 워커는 k3d 로컬 검증까지만 했고, 차트에 Prometheus/Grafana가 없어 클러스터에서는 메트릭을 수집하지 않음

@@ -1,0 +1,18 @@
+{{- if .Values.anomalyWorker.enabled }}
+# 워커 /metrics 노출용 (클러스터 안 Prometheus가 스크레이프할 대상)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mini-mes.fullname" . }}-anomaly-worker
+  labels:
+    {{- include "mini-mes.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "mini-mes.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: anomaly-worker
+  ports:
+    - name: metrics
+      port: {{ .Values.anomalyWorker.metricsPort }}
+      targetPort: metrics
+{{- end }}

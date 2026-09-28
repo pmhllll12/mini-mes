@@ -17,3 +17,15 @@ db:
   user: mes_user
   password: mes_password
   database: mini_mes
+
+# 이상탐지 워커 - 모델은 PVC(/models)에 저장. 학습은 README "Helm" 절 참고 (kubectl exec ... python train.py)
+anomalyWorker:
+  enabled: true
+  image:
+    repository: mini-mes-anomaly-worker
+    tag: latest
+    pullPolicy: IfNotPresent
+  intervalSec: 10
+  lookbackHours: 24
+  metricsPort: 9100
+  modelStorage: 100Mi

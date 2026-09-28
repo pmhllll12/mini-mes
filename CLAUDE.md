@@ -16,12 +16,13 @@ FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana, GitHub 
 - monitoring/ : Prometheus 스크레이프 설정(api, anomaly-worker), Grafana 데이터소스·대시보드 프로비저닝
 - .github/workflows/ci.yml : push/PR 시 lint(ruff)·API 테스트·워커/평가 단위 테스트·API/워커 Docker 빌드
 - docs/ : GitHub Pages(Jekyll, minima 테마) 소개 사이트 (index.md 개요, anomaly-detection.md 평가 상세). README의 수치·로드맵을 바꾸면 함께 갱신
-- charts/mini-mes/ : api·db Helm 차트 (k3d/minikube 로컬 검증용, 서버 배포 대상 미정). files/schema.sql은 db/schema.sql 복사본이므로 수동 동기화 필요
+- charts/mini-mes/ : api·db·anomaly-worker(모델 PVC, 메트릭 Service) Helm 차트 (k3d/minikube 로컬 검증용, 서버 배포 대상 미정). files/schema.sql은 db/schema.sql 복사본이므로 수동 동기화 필요
 
 ## 로컬 실행 주의
 - API 포트는 호스트 8001 (8000은 WSL의 다른 프로세스가 사용 중)
 - docs/ Jekyll 로컬 미리보기는 포트 4002 (`cd docs && jekyll serve --port 4002`, http://localhost:4002/mini-mes/). 4000·4001은 다른 프로젝트(super-sub.cloud, demo)의 jekyll serve가 사용 중
 - 스키마 변경 시 `docker compose down -v` 후 재기동 (schema.sql은 최초 1회만 실행됨). down -v는 모델 볼륨(anomaly_models)도 지우므로 재학습 필요 (README "이상탐지 워커" 절차)
+- helm·k3d는 ~/.local/bin에 설치됨 (helm v3.16.2, k3d v5.7.4). k3d 검증 시 호스트 8001은 compose API가 쓰므로 port-forward는 18001 등 다른 포트 사용
 - 로컬 python은 3.14라 scikit-learn 고정 버전 설치가 안 됨 → 워커/평가 테스트는 python:3.12 컨테이너에서 실행
 
 ## 이상탐지 규칙
@@ -42,4 +43,4 @@ FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana, GitHub 
 ## 알려진 이슈
 - (해결됨, 2주차) production_log.qty_defect 와 quality_event 가 서로 연결되어 있지 않던 문제 → quality_event.production_log_id(nullable FK) 추가, `/quality/defect-summary` API로 설비별·불량유형별 집계 제공
 - (미해결, 5주차) Isolation Forest 점수가 학습 범위 밖에서 포화되어 recall이 낮음 (가상 데이터 기준 전체 P 0.896 / R 0.453 / F1 0.602). 개선 후보: 범위 이탈 robust z-score 결합, 이동평균 특징
-- Helm 차트에는 anomaly-worker가 아직 없음
+- Helm 차트의 anomaly-worker는 k3d 로컬 검증까지만. 차트에 Prometheus/Grafana가 없어 클러스터에서는 워커 메트릭 미수집

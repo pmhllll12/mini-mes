@@ -1,0 +1,14 @@
+{{- if .Values.anomalyWorker.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "mini-mes.fullname" . }}-anomaly-models
+  labels:
+    {{- include "mini-mes.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.anomalyWorker.modelStorage }}
+{{- end }}
