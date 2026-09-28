@@ -222,6 +222,7 @@ docker compose run --rm -v "$PWD/evaluate:/eval" -v "$PWD/simulator:/sim:ro" \
 - `docker-build`: 위 두 작업이 통과하면 API 이미지와 anomaly-worker 이미지를 빌드합니다.
 
 로컬에서 테스트를 돌리려면 Postgres가 필요합니다 (예: `docker compose up -d db`로 이미 띄워둔 DB를 사용해도 됩니다).
+각 테스트가 넣은 행(생산실적·품질 이벤트·이상 판정, 워커가 테스트용 생산실적을 판정한 결과 포함)은 `api/tests/conftest.py`의 fixture가 테스트 종료 시 지우고, 바뀐 설비 status도 되돌리므로 개발용 DB에 테스트 데이터가 남지 않습니다. 디버깅용으로 남기려면 `KEEP_TEST_DATA=1 pytest`로 실행합니다.
 
 ```bash
 cd api
