@@ -23,6 +23,15 @@ EQUIPMENT_IDS = ["EQ-001", "EQ-002", "EQ-003"]
 # 설비별 정상 사이클타임(제품 1개당 초) 기준값
 BASE_CYCLE_TIME = {"EQ-001": 12.0, "EQ-002": 15.0, "EQ-003": 8.0}
 
+# 불량 유형 및 발생 확률 가중치 (정상 구간 vs ANOMALY 구간)
+# ANOMALY 구간(사이클타임 급증)에서는 치수 불량(dimension_out)으로 쏠리게 한다.
+DEFECT_TYPES = ["scratch", "dimension_out", "burr", "discoloration"]
+NORMAL_DEFECT_WEIGHTS = [0.40, 0.20, 0.25, 0.15]
+ANOMALY_DEFECT_WEIGHTS = [0.05, 0.75, 0.15, 0.05]
+
+NORMAL_SEVERITY_WEIGHTS = [0.6, 0.3, 0.1]   # low, medium, high
+ANOMALY_SEVERITY_WEIGHTS = [0.1, 0.3, 0.6]
+
 
 def make_log(equipment_id: str, window_sec: int, cycle: float, util: float, defect_rate: float) -> dict:
     cycle = max(cycle, 0.1)
@@ -58,6 +67,24 @@ def generate_anomaly_log(equipment_id: str, window_sec: int) -> dict:
     )
 
 
+def send_quality_event(api_url: str, equipment_id: str, log_id: int, is_anomaly: bool) -> None:
+    """불량이 발생한 생산실적 건에 한해, 해당 log_id를 가리키는 품질 이벤트를 함께 전송한다."""
+    weights = ANOMALY_DEFECT_WEIGHTS if is_anomaly else NORMAL_DEFECT_WEIGHTS
+    severity_weights = ANOMALY_SEVERITY_WEIGHTS if is_anomaly else NORMAL_SEVERITY_WEIGHTS
+    payload = {
+        "equipment_id": equipment_id,
+        "production_log_id": log_id,
+        "defect_type": random.choices(DEFECT_TYPES, weights=weights)[0],
+        "severity": random.choices(["low", "medium", "high"], weights=severity_weights)[0],
+    }
+    try:
+        res = requests.post(f"{api_url}/quality-events", json=payload, timeout=5)
+        print(f"  -> quality-event {payload['defect_type']}/{payload['severity']} "
+              f"(log_id={log_id}) -> {res.status_code}")
+    except requests.RequestException as e:
+        print(f"[error] {equipment_id} 품질 이벤트 전송 실패: {e}")
+
+
 def run(api_url: str, interval: int, window_sec: int, anomaly_rate: float, max_ticks: int = 0):
     print(f"[simulate] {api_url} 로 {interval}초마다 전송 시작 "
           f"(1회 = {window_sec}초 분량, Ctrl+C로 종료)")
@@ -76,6 +103,10 @@ def run(api_url: str, interval: int, window_sec: int, anomaly_rate: float, max_t
                 print(f"[{datetime.now().isoformat(timespec='seconds')}] "
                       f"{eq_id} ({tag}) good={payload['qty_good']} "
                       f"defect={payload['qty_defect']} -> {res.status_code}")
+
+                if res.status_code == 201 and payload["qty_defect"] > 0:
+                    log_id = res.json()["log_id"]
+                    send_quality_event(api_url, eq_id, log_id, is_anomaly)
             except requests.RequestException as e:
                 print(f"[error] {eq_id} 전송 실패: {e}")
 

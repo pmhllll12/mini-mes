@@ -64,6 +64,7 @@ docker compose up --build -d
 
 실제 설비 데이터가 아니라, 정상 패턴과 이상 패턴을 섞어 생성하는 가상 데이터입니다.
 1회 전송이 `--window-sec`초 분량의 생산실적이고, 생산 수량은 사이클타임과 구간 길이에서 계산합니다.
+불량이 발생한 생산실적 건에는 해당 `production_log_id`를 가리키는 품질 이벤트(불량 유형: scratch/dimension_out/burr/discoloration)를 함께 전송하며, ANOMALY 구간에서는 `dimension_out` 비중이 높아지도록 가중치를 다르게 둡니다.
 
 ```bash
 cd simulator
@@ -114,7 +115,7 @@ curl "http://localhost:8001/export/production-logs?start=2020-01-01T00:00:00Z" -
 | 주차 | 내용 | 상태 |
 |---|---|---|
 | 1주 | 스키마 설계, FastAPI 수집/조회 API, 시뮬레이터, 다중 설비 조회·CSV export | ✅ |
-| 2주 | `quality_event`에 `production_log_id`(nullable FK) 추가, 설비별·불량유형별 불량 집계 API(`/quality/defect-summary`) | ✅ |
+| 2주 | `quality_event`에 `production_log_id`(nullable FK) 추가, 설비별·불량유형별 불량 집계 API(`/quality/defect-summary`), 시뮬레이터가 불량 발생 시 연결된 품질 이벤트도 함께 전송 | ✅ |
 | 3주 | Docker Compose 전체 스택 검증 (로컬 실행은 확인 완료) | |
 | 4주 | K3s/Helm 배포 전환 | |
 | 5주 | 이상탐지(예지보전) 워커 추가 | |
