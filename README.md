@@ -37,6 +37,7 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 | GET | `/equipment/{id}/oee?hours=` | 단일 설비 OEE |
 | GET | `/oee?equipment_ids=&hours=` | 여러 설비(생략 시 전체) OEE 일괄 조회 |
 | GET | `/quality/defect-summary?equipment_ids=&hours=` | 설비별·불량유형별 불량 집계 |
+| GET | `/anomalies?equipment_ids=&hours=` | 여러 설비(생략 시 전체) 이상탐지 결과 일괄 조회 (판정 건수, 이상 건수, 최대 점수, 이상 판정 목록) |
 | GET | `/export/production-logs?equipment_ids=&start=&end=` | 생산실적 CSV 다운로드 |
 
 ## 설비 status 규칙
@@ -84,6 +85,9 @@ curl "http://localhost:8001/oee?hours=1"
 
 # 특정 설비 2개만
 curl "http://localhost:8001/oee?equipment_ids=EQ-001&equipment_ids=EQ-003&hours=1"
+
+# 전체 설비 최근 1시간 이상탐지 결과
+curl "http://localhost:8001/anomalies?hours=1"
 
 # 전체 설비 생산실적을 CSV로
 curl "http://localhost:8001/export/production-logs?start=2020-01-01T00:00:00Z" -o report.csv
@@ -142,9 +146,11 @@ docker compose logs -f anomaly-worker
 [설비 시뮬레이터] → [FastAPI 수집 API] → [PostgreSQL]
                                               ↓
                                     [FastAPI 조회/집계 API] → /metrics → [Prometheus] → [Grafana]
+                                              ↑                                  ↑
+                          [anomaly-worker] ──(anomaly_result 기록)          /metrics(:9100)
 ```
 
-이후 단계에서 이상탐지 워커, 자연어 질의 API를 추가할 예정입니다.
+이후 단계에서 자연어 질의 API를 추가할 예정입니다.
 
 ## 모니터링 (Prometheus + Grafana)
 
@@ -154,8 +160,13 @@ docker compose logs -f anomaly-worker
   - `mes_equipment_oee`, `mes_equipment_availability`, `mes_equipment_quality_rate` — 설비별, 스크레이프 시점 기준 최근 1시간 집계
   - `mes_defect_qty` — 설비별·불량유형별, 스크레이프 시점 기준 최근 24시간 불량 수량
   - `mes_http_requests_total`, `mes_http_request_duration_seconds` — API 요청 수·지연시간 (경로·메서드·상태코드별)
+- anomaly-worker `:9100/metrics` 노출 메트릭 (Prometheus가 `anomaly-worker:9100`을 스크레이프, 호스트에는 포트를 열지 않음)
+  - `mes_anomaly_score` — 설비별, 직전 판정 주기에 판정한 생산실적 중 최대 이상 점수
+  - `mes_anomaly_threshold`, `mes_anomaly_model_loaded` — 설비별 모델 threshold, 모델 로드 여부(1/0)
+  - `mes_anomaly_scored_total`, `mes_anomaly_detected_total` — 판정 건수, 이상 판정 건수 (Counter라 워커 재시작 시 0부터 다시 셈. 누적 건수는 `/anomalies` API 기준)
 - Prometheus: http://localhost:9090 (설정: `monitoring/prometheus/prometheus.yml`, 10초 간격으로 API `/metrics` 스크레이프)
 - Grafana: http://localhost:3000 (admin/admin, 로컬 전용 기본 계정) — "mini-mes 개요" 대시보드가 자동으로 로드됨
+  - 이상탐지 패널: "이상 점수 추이"(설비별 점수 + 점선 threshold), "이상 탐지 횟수 (최근 1시간)"
   - 프로비저닝 파일: `monitoring/grafana/provisioning/`(datasource·dashboard 등록), `monitoring/grafana/dashboards/mini-mes.json`(대시보드 정의)
 
 ## 테스트 / CI

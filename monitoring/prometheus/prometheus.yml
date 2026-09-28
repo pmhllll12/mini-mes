@@ -5,3 +5,7 @@ scrape_configs:
   - job_name: "mini-mes-api"
     static_configs:
       - targets: ["api:8000"]
+
+  - job_name: "mini-mes-anomaly-worker"
+    static_configs:
+      - targets: ["anomaly-worker:9100"]

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from pydantic import BaseModel, ConfigDict
 
 
@@ -61,3 +61,20 @@ class OeeResponse(BaseModel):
     oee: float            # 종합설비효율 = availability * quality_rate
     total_qty: int
     total_defect: int
+
+
+class AnomalyPoint(BaseModel):
+    ts: datetime              # 판정 대상 생산실적의 ts
+    anomaly_score: float      # 클수록 이상 (Isolation Forest)
+
+
+class AnomalySummary(BaseModel):
+    """설비별 이상탐지 결과 응답 (anomaly_result 기준)"""
+    equipment_id: str
+    period_start: datetime
+    period_end: datetime
+    scored_count: int             # 기간 내 판정된 생산실적 건수
+    anomaly_count: int            # 그중 is_anomaly = true 건수
+    max_score: Optional[float]    # 기간 내 최대 이상 점수 (판정 0건이면 null)
+    last_scored_ts: Optional[datetime]
+    anomalies: List[AnomalyPoint]  # is_anomaly = true 인 건 (최신순)

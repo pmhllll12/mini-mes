@@ -49,6 +49,7 @@ services:
       - "9090:9090"
     depends_on:
       - api
+      - anomaly-worker
 
   grafana:
     image: grafana/grafana:11.3.0

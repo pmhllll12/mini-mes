@@ -15,6 +15,7 @@ import models
 import schemas
 from oee import calculate_oee
 from quality import calculate_defect_summary
+from anomaly import summarize_anomalies
 
 # 로컬 개발 편의를 위해 앱 시작 시 테이블 자동 생성
 # (운영에서는 schema.sql / 마이그레이션 도구를 통해 관리)
@@ -210,6 +211,27 @@ def get_oee_bulk(
         raise HTTPException(status_code=404, detail="no equipment registered")
 
     return [calculate_oee(db, eq_id, start, end) for eq_id in targets]
+
+
+# ---------- 이상탐지 결과 조회 (anomaly-worker가 기록) ----------
+
+@app.get("/anomalies", response_model=List[schemas.AnomalySummary])
+def get_anomalies(
+    equipment_ids: Optional[List[str]] = Query(
+        None, description="비워두면 등록된 모든 설비를 대상으로 함 (?equipment_ids=EQ-001&equipment_ids=EQ-002)"
+    ),
+    hours: int = 24,
+    db: Session = Depends(get_db),
+):
+    """여러 설비(또는 전체 설비)의 최근 N시간 이상탐지 결과를 한 번에 조회 (/oee와 같은 방식)"""
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(hours=hours)
+
+    targets = _resolve_equipment_ids(db, equipment_ids)
+    if not targets:
+        raise HTTPException(status_code=404, detail="no equipment registered")
+
+    return summarize_anomalies(db, targets, start, end)
 
 
 @app.get("/export/production-logs")

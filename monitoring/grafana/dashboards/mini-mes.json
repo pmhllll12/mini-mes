@@ -114,6 +114,64 @@
           "refId": "A"
         }
       ]
+    },
+    {
+      "id": 6,
+      "title": "이상 점수 추이",
+      "description": "anomaly-worker가 판정 주기마다 계산한 설비별 최대 이상 점수(클수록 이상). 점선은 설비별 threshold.",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 24 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0, "max": 1, "decimals": 3 },
+        "overrides": [
+          {
+            "matcher": { "id": "byRegexp", "options": ".*threshold$" },
+            "properties": [
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } },
+              { "id": "custom.lineWidth", "value": 1 }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+          "expr": "mes_anomaly_score",
+          "legendFormat": "{{equipment_id}}",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+          "expr": "mes_anomaly_threshold",
+          "legendFormat": "{{equipment_id}} threshold",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "이상 탐지 횟수 (최근 1시간)",
+      "type": "bargauge",
+      "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 24 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0, "decimals": 0 },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+          "expr": "sum(increase(mes_anomaly_detected_total[1h])) by (equipment_id)",
+          "legendFormat": "{{equipment_id}}",
+          "refId": "A"
+        }
+      ]
     }
   ]
 }
