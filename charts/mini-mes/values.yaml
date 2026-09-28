@@ -10,6 +10,15 @@ api:
     type: ClusterIP
     port: 8001
 
+# 자연어 질의(POST /query) - API 키는 values에 넣지 않고 Secret으로만 받는다 (values는 git에 커밋되므로)
+#   kubectl create secret generic <release>-llm --from-env-file=.env
+# Secret이나 키가 없으면 /query만 503이고 api는 정상 동작 (secretKeyRef optional)
+nlq:
+  existingSecret: ""   # 비우면 "<release>-llm". 키 이름은 ANTHROPIC_API_KEY, GEMINI_API_KEY
+  provider: ""         # claude | gemini, 비우면 키가 있는 제공자(claude 우선)
+  claudeModel: ""      # 비우면 claude-opus-5
+  geminiModel: ""      # 비우면 gemini-flash-latest
+
 db:
   image: postgres:16
   port: 5432

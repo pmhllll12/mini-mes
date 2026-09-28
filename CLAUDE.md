@@ -17,7 +17,7 @@ FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana, GitHub 
 - monitoring/ : Prometheus 스크레이프 설정(api, anomaly-worker), Grafana 데이터소스·대시보드 프로비저닝
 - .github/workflows/ci.yml : push/PR 시 lint(ruff)·API 테스트·워커/평가 단위 테스트·차트(복사본 동기화 diff, helm lint/template)·API/워커 Docker 빌드
 - docs/ : GitHub Pages(Jekyll, minima 테마) 소개 사이트 (index.md 개요, anomaly-detection.md 이상탐지 상세 기록: 평가 절차·모델별 비교·C안·경보 분리 전체 표). README는 요약·실행법·현재 결과만 두고 상세는 docs로. 수치·로드맵을 바꾸면 README·docs 함께 갱신
-- charts/mini-mes/ : api·db·anomaly-worker(모델 PVC, 메트릭 Service)·Prometheus·Grafana(monitoring.enabled) Helm 차트 (k3d/minikube 로컬 검증용, 서버 배포 대상 미정). files/schema.sql, files/grafana-dashboard.json은 db/schema.sql, monitoring/grafana/dashboards/mini-mes.json 복사본 → 원본 수정 시 같이 수정 (CI chart 작업이 diff로 검사)
+- charts/mini-mes/ : api·db·anomaly-worker(모델 PVC, 메트릭 Service)·Prometheus·Grafana(monitoring.enabled) Helm 차트. LLM 키는 values에 넣지 않고 <release>-llm Secret을 optional 참조(nlq.existingSecret, kubectl create secret generic mini-mes-llm --from-env-file=.env) (k3d/minikube 로컬 검증용, 서버 배포 대상 미정). files/schema.sql, files/grafana-dashboard.json은 db/schema.sql, monitoring/grafana/dashboards/mini-mes.json 복사본 → 원본 수정 시 같이 수정 (CI chart 작업이 diff로 검사)
 
 ## 로컬 실행 주의
 - API 포트는 호스트 8001 (8000은 WSL의 다른 프로세스가 사용 중)

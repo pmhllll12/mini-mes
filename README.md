@@ -316,7 +316,11 @@ kubectl logs deploy/mini-mes-anomaly-worker -f   # 모델 로드 → 판정 로�
 kubectl port-forward svc/mini-mes-prometheus 19090:9090   # http://localhost:19090/targets 에서 api·워커 up 확인
 kubectl port-forward svc/mini-mes-grafana 13000:3000      # http://localhost:13000 "mini-mes 개요" 대시보드
 
-# 7) 정리
+# 7) 자연어 질의 키 (선택) - 키는 values가 아니라 Secret으로만. 만든 뒤 api 파드를 재시작해야 읽음
+kubectl create secret generic mini-mes-llm --from-env-file=.env
+kubectl rollout restart deploy/mini-mes-api
+
+# 8) 정리
 helm uninstall mini-mes
 k3d cluster delete mini-mes
 ```
@@ -331,6 +335,7 @@ minikube를 쓴다면 2)의 `k3d image import` 대신 `minikube image load mini-
 - 모니터링: 파드 5개(db·api·워커·Prometheus·Grafana) Running, 스크레이프 대상 api·워커 모두 up, Grafana에 대시보드(패널 9개) 로드·조회 성공
 - Prometheus 영속성(차트 0.3.2): PVC 모드에서 파드를 지우고 새 파드가 떠도 가장 오래된 샘플 시각이 그대로(06:45:12, 새 파드 시작 06:47:02, WAL 재생 정상). 대조로 emptyDir 모드에서는 새 파드 시작 이후 샘플만 남음
 - 정적 검증: `helm lint` 통과, 렌더링된 리소스 19개 kubeconform(strict) 통과 (Prometheus PVC 끄면 18개, `monitoring.enabled=false`면 10개)
+- 자연어 질의 키(차트 0.4.0): api 컨테이너가 `<release>-llm` Secret(`nlq.existingSecret`로 변경 가능)의 `ANTHROPIC_API_KEY`·`GEMINI_API_KEY`를 `optional` 참조 — Secret이 없으면 api는 정상 동작하고 `/query`만 503. 제공자·모델은 `nlq.provider`, `nlq.claudeModel`, `nlq.geminiModel`. k3d 확인: Secret 없이 파드 5개 재시작 0회·`/health` 200·`/query` 503 → `.env`로 Secret 생성·api 재시작 후 파드에 `GEMINI_API_KEY` 주입(값은 출력하지 않고 길이만 확인), `/query`가 Gemini까지 도달(당일 무료 한도 소진으로 429 응답 — 답변 생성까지는 미확인)
 
 ## 기술 스택
 
@@ -359,7 +364,7 @@ minikube를 쓴다면 2)의 `k3d image import` 대신 `minikube image load mini-
   - 설비별 모델이라 새 설비를 추가하거나 공정 조건이 바뀌면 재학습이 필요하고(자동 재학습 없음), 학습 데이터가 정상인지는 사람이 학습 구간을 지정해서 보장합니다.
   - 열화 경보는 DB에 남지 않고(스키마 유지) 메트릭으로만 남으며, 열화가 끝난 뒤에도 몇 구간 더 켜져 있습니다.
   - `anomaly_result`에 생산실적 ID가 없어 `(equipment_id, ts)`로 같은 로그인지 판단합니다.
-- 자연어 질의: 평가는 질문 12개 중 8개만 완료(Gemini 무료 한도), Claude는 미평가입니다. 수치를 단위(건/개)까지 정확히 전하는지는 자동 채점이 확인하지 못합니다. Helm 차트에는 아직 LLM API 키 설정이 없어 클러스터에서는 `/query`가 503입니다.
+- 자연어 질의: 평가는 질문 12개 중 8개만 완료(Gemini 무료 한도), Claude는 미평가입니다. 수치를 단위(건/개)까지 정확히 전하는지는 자동 채점이 확인하지 못합니다. Helm 차트에서는 키를 담은 Secret(`<release>-llm`)을 직접 만들어야 `/query`가 동작합니다.
 - Helm 차트(워커·Prometheus·Grafana 포함)는 k3d 로컬 검증까지만 했습니다 (k3d 기본 local-path 저장소라 PVC도 노드 한 대의 디스크에 있음).
 
 ## 개발 기간

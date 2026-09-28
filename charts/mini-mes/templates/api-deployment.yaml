@@ -41,6 +41,22 @@ spec:
                 secretKeyRef:
                   name: {{ include "mini-mes.fullname" . }}-db
                   key: DATABASE_URL
+            # 자연어 질의 - 키는 Secret에서만 (없어도 파드는 뜨고 /query만 503)
+            {{- $llmSecret := .Values.nlq.existingSecret | default (printf "%s-llm" (include "mini-mes.fullname" .)) }}
+            {{- range $key := list "ANTHROPIC_API_KEY" "GEMINI_API_KEY" }}
+            - name: {{ $key }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $llmSecret }}
+                  key: {{ $key }}
+                  optional: true
+            {{- end }}
+            - name: NLQ_PROVIDER
+              value: {{ .Values.nlq.provider | quote }}
+            - name: CLAUDE_MODEL
+              value: {{ .Values.nlq.claudeModel | quote }}
+            - name: GEMINI_MODEL
+              value: {{ .Values.nlq.geminiModel | quote }}
           readinessProbe:
             httpGet:
               path: /health
