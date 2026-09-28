@@ -7,7 +7,7 @@
 FastAPI + SQLAlchemy + PostgreSQL, Docker Compose (이후 K3s/Helm, Terraform, GitHub Actions)
 
 ## 구조
-- api/ : FastAPI 앱 (main.py, models.py, schemas.py, oee.py, database.py)
+- api/ : FastAPI 앱 (main.py, models.py, schemas.py, oee.py, quality.py, database.py)
 - db/schema.sql : 테이블 정의 + 설비 시드 3개
 - simulator/simulate.py : 가상 설비 데이터 전송기
 

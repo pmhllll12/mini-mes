@@ -5,6 +5,7 @@ from typing import List, Optional
 
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from database import get_db, engine, Base
@@ -19,17 +20,43 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="mini-mes", version="0.1.0")
 
+# 설비 status 규칙:
+# - 생산실적 수신 시 qty_good+qty_defect > 0 이면 running, 0이면 stopped로 갱신한다.
+# - 마지막 생산실적 이후 STALE_MINUTES 이상 새 데이터가 없으면 조회 시점에 stopped로 간주한다.
+# - 생산실적이 한 번도 없었던 설비는 시드 상태(idle)를 그대로 보여준다.
+STALE_MINUTES = 5
+
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
 
+def _effective_status(stored_status: str, last_log_ts: Optional[datetime]) -> str:
+    if last_log_ts is not None and datetime.now(timezone.utc) - last_log_ts > timedelta(minutes=STALE_MINUTES):
+        return "stopped"
+    return stored_status
+
+
 # ---------- 설비 ----------
 
 @app.get("/equipment", response_model=List[schemas.EquipmentStatus])
 def list_equipment(db: Session = Depends(get_db)):
-    return db.query(models.Equipment).all()
+    equipments = db.query(models.Equipment).all()
+    latest_ts_by_equipment = dict(
+        db.query(models.ProductionLog.equipment_id, func.max(models.ProductionLog.ts))
+        .group_by(models.ProductionLog.equipment_id)
+        .all()
+    )
+    return [
+        schemas.EquipmentStatus(
+            equipment_id=eq.equipment_id,
+            name=eq.name,
+            line_id=eq.line_id,
+            status=_effective_status(eq.status, latest_ts_by_equipment.get(eq.equipment_id)),
+        )
+        for eq in equipments
+    ]
 
 
 @app.get("/equipment/{equipment_id}", response_model=schemas.EquipmentStatus)
@@ -37,7 +64,18 @@ def get_equipment(equipment_id: str, db: Session = Depends(get_db)):
     eq = db.query(models.Equipment).filter_by(equipment_id=equipment_id).first()
     if not eq:
         raise HTTPException(status_code=404, detail="equipment not found")
-    return eq
+
+    last_log_ts = (
+        db.query(func.max(models.ProductionLog.ts))
+        .filter(models.ProductionLog.equipment_id == equipment_id)
+        .scalar()
+    )
+    return schemas.EquipmentStatus(
+        equipment_id=eq.equipment_id,
+        name=eq.name,
+        line_id=eq.line_id,
+        status=_effective_status(eq.status, last_log_ts),
+    )
 
 
 # ---------- 생산실적 수집 (설비/시뮬레이터가 호출) ----------
@@ -50,6 +88,9 @@ def create_production_log(payload: schemas.ProductionLogIn, db: Session = Depend
 
     log = models.ProductionLog(**payload.model_dump())
     db.add(log)
+
+    eq.status = "running" if (payload.qty_good + payload.qty_defect) > 0 else "stopped"
+
     db.commit()
     db.refresh(log)
     return log

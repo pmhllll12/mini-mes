@@ -31,13 +31,17 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 | 메서드 | 경로 | 설명 |
 |---|---|---|
 | GET | `/health` | 상태 확인 |
-| GET | `/equipment`, `/equipment/{id}` | 설비 목록·상세 조회 |
+| GET | `/equipment`, `/equipment/{id}` | 설비 목록·상세 조회 (status 자동 갱신, 아래 규칙 참고) |
 | POST | `/production-logs` | 생산실적 수집 |
 | POST | `/quality-events` | 품질 이벤트(불량 유형·심각도) 수집 |
 | GET | `/equipment/{id}/oee?hours=` | 단일 설비 OEE |
 | GET | `/oee?equipment_ids=&hours=` | 여러 설비(생략 시 전체) OEE 일괄 조회 |
 | GET | `/quality/defect-summary?equipment_ids=&hours=` | 설비별·불량유형별 불량 집계 |
 | GET | `/export/production-logs?equipment_ids=&start=&end=` | 생산실적 CSV 다운로드 |
+
+## 설비 status 규칙
+
+생산실적 수신 시 `qty_good+qty_defect`가 0보다 크면 `running`, 0이면 `stopped`로 갱신하며, 마지막 생산실적 이후 5분 이상 새 데이터가 없으면 조회 시점에 `stopped`로 표시한다 (한 번도 생산실적이 없었던 설비는 시드 상태인 `idle`을 유지).
 
 ## OEE 계산
 
@@ -115,7 +119,7 @@ curl "http://localhost:8001/export/production-logs?start=2020-01-01T00:00:00Z" -
 | 주차 | 내용 | 상태 |
 |---|---|---|
 | 1주 | 스키마 설계, FastAPI 수집/조회 API, 시뮬레이터, 다중 설비 조회·CSV export | ✅ |
-| 2주 | `quality_event`에 `production_log_id`(nullable FK) 추가, 설비별·불량유형별 불량 집계 API(`/quality/defect-summary`), 시뮬레이터가 불량 발생 시 연결된 품질 이벤트도 함께 전송 | ✅ |
+| 2주 | `quality_event`에 `production_log_id`(nullable FK) 추가, 설비별·불량유형별 불량 집계 API(`/quality/defect-summary`), 시뮬레이터가 불량 발생 시 연결된 품질 이벤트도 함께 전송, 설비 status 자동 갱신 | ✅ |
 | 3주 | Docker Compose 전체 스택 검증 (로컬 실행은 확인 완료) | |
 | 4주 | K3s/Helm 배포 전환 | |
 | 5주 | 이상탐지(예지보전) 워커 추가 | |
@@ -125,7 +129,6 @@ curl "http://localhost:8001/export/production-logs?start=2020-01-01T00:00:00Z" -
 ## 알려진 한계
 
 - 데이터는 시뮬레이터가 만든 가상 데이터이며 실제 설비 데이터가 아닙니다.
-- 설비 `status`는 현재 자동으로 갱신되지 않습니다.
 - `db/schema.sql`은 DB 최초 생성 시 한 번만 적용됩니다. 스키마를 바꾸면 `docker compose down -v` 후 다시 띄워야 합니다.
 
 ## 개발 기간
