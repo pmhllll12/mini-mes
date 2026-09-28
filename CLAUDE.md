@@ -44,5 +44,5 @@ FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana, GitHub 
 - (해결됨, 2주차) production_log.qty_defect 와 quality_event 가 서로 연결되어 있지 않던 문제 → quality_event.production_log_id(nullable FK) 추가, `/quality/defect-summary` API로 설비별·불량유형별 집계 제공
 - (해결됨, 5주차) Isolation Forest 점수가 학습 범위 밖에서 포화되어 recall이 낮던 문제(v1: P 0.896 / R 0.453 / F1 0.602) → robust z-score 결합(v2: 새 평가 실행분 기준 P 0.920 / R 1.000 / F1 0.959). 시뮬레이터 이상이 쉬운 이상이라 나온 수치.
 - (5주차, 옵션으로 유지) C안 이동 구간 특징(K=5): 점진적 열화 recall 0.407 → 0.612, 대신 이상 직후 오탐 증가로 급변 F1 0.970 → 0.861. 워커 기본은 v2.
-- (5주차) 급변·열화 경보 분리: 급변=/models(v2)→anomaly_result, 열화=/models/drift(C, K=5)→mes_drift_* 메트릭·로그만(스키마에 탐지기 구분 없음). 급변 판정 건은 열화에서 제외. 남은 문제: 경보 깜빡임(히스테리시스 없음), 급변 직후 경보, 열화 이력 DB 미보관
+- (5주차) 급변·열화 경보 분리: 급변=/models(v2)→anomaly_result, 열화=/models/drift(C, K=5)→mes_drift_* 메트릭·로그만(스키마에 탐지기 구분 없음). 급변 판정 건은 열화 경보 판단 보류(None). 히스테리시스 2구간 연속 시작/3구간 연속 해제(DRIFT_RAISE_AFTER/DRIFT_CLEAR_AFTER). 검증 실행분 기준 경보 76→25, 에피소드당 1.00, 도중 해제 0. 남은 문제: 열화 종료 후 약 5구간 경보 지속, 열화 초반 미감지, 열화 이력 DB 미보관
 - Helm 차트의 anomaly-worker는 k3d 로컬 검증까지만. 차트에 Prometheus/Grafana가 없어 클러스터에서는 워커 메트릭 미수집

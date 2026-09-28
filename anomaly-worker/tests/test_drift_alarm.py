@@ -68,3 +68,27 @@ def test_rows_flagged_as_spike_do_not_raise_drift_alarm(tmp_path, monkeypatch):
               spike_flags=[False, False, True, False, False])
     assert alarm.active["EQ-SPIKE"] is False
     assert (REGISTRY.get_sample_value("mes_drift_alarm_raised_total", {"equipment_id": "EQ-SPIKE"}) or 0) == 0
+
+
+def test_hysteresis_ignores_single_blips_and_holds_through_short_dips():
+    alarm = DriftAlarm(raise_after=2, clear_after=3)
+    # 1구간짜리 열화 판정은 무시
+    assert alarm.update("EQ-H", [True, False, True, False]) == []
+    # 2구간 연속이면 두 번째 구간에서 시작
+    assert alarm.update("EQ-H", [True, True]) == [(1, "raised")]
+    # 경보 중 정상 2구간은 버팀, 다시 열화가 오면 연속 횟수 초기화
+    assert alarm.update("EQ-H", [False, False, True, False, False]) == []
+    assert alarm.active["EQ-H"] is True
+    # 연속 횟수는 판정 주기를 넘어 이어짐: 앞 주기 정상 2구간 + 이번 1구간 = 3구간 -> 해제
+    assert alarm.update("EQ-H", [False]) == [(0, "cleared")]
+    assert alarm.active["EQ-H"] is False
+
+
+def test_spike_rows_are_neutral_and_do_not_clear_active_alarm():
+    alarm = DriftAlarm(raise_after=2, clear_after=3)
+    assert alarm.update("EQ-N", [True, True]) == [(1, "raised")]
+    # 열화 후반을 급변 탐지기가 잡아 판단 보류(None)가 이어져도 경보 유지
+    assert alarm.update("EQ-N", [None, None, None, None]) == []
+    assert alarm.active["EQ-N"] is True
+    # None은 정상 연속 횟수를 끊지도 늘리지도 않음: 정상 2 + 보류 + 정상 1 = 3 -> 해제
+    assert alarm.update("EQ-N", [False, False, None, False]) == [(3, "cleared")]

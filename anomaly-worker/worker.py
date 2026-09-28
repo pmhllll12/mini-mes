@@ -12,7 +12,11 @@ anomaly_result에 (equipment_id, ts, anomaly_score, is_anomaly)를 기록한다.
 - 열화 경보: DRIFT_MODEL_DIR의 모델(train.py --rolling-window, 이동 구간 특징 사용)로 같은 생산실적을 한 번 더 판정.
   anomaly_result 스키마에 탐지기 구분이 없어 DB에는 쓰지 않고, mes_drift_* 메트릭과 로그(경보 시작/해제)로만 내보낸다.
   열화 모델이 없으면 열화 감시만 건너뛴다 (급변 판정이 된 생산실적만 열화 판정 대상).
-  급변 모델이 이상으로 판정한 생산실적은 열화로 보지 않는다 (급변 1건이 열화 경보까지 중복으로 울리지 않게).
+  급변 모델이 이상으로 판정한 생산실적은 열화 경보 판단을 보류한다 (경보를 켜는 근거도, 끄는 근거도 아님).
+  급변 1건이 열화 경보까지 중복으로 울리지 않게 하고, 급변 탐지기도 잡을 만큼 진행된 열화 후반에
+  열화 경보가 도중에 꺼지지 않게 하기 위함.
+  경보는 열화 판정 DRIFT_RAISE_AFTER구간 연속이면 시작, 정상 판정 DRIFT_CLEAR_AFTER구간 연속이면 해제한다
+  (threshold 근처에서 켜졌다 꺼지기를 반복하는 깜빡임 완화).
 """
 import logging
 import os
@@ -30,6 +34,8 @@ INTERVAL_SEC = int(os.getenv("INTERVAL_SEC", "10"))
 LOOKBACK_HOURS = int(os.getenv("LOOKBACK_HOURS", "24"))
 METRICS_PORT = int(os.getenv("METRICS_PORT", "9100"))
 DRIFT_MODEL_DIR = os.getenv("DRIFT_MODEL_DIR", os.path.join(MODEL_DIR, "drift"))
+DRIFT_RAISE_AFTER = int(os.getenv("DRIFT_RAISE_AFTER", "2"))
+DRIFT_CLEAR_AFTER = int(os.getenv("DRIFT_CLEAR_AFTER", "3"))
 
 ANOMALY_SCORE = Gauge(
     "mes_anomaly_score", "직전 판정 주기에 판정한 생산실적 중 최대 이상 점수", ["equipment_id"]
@@ -82,20 +88,37 @@ def features_for(conn, equipment_id: str, rows, bundle: dict):
 
 
 class DriftAlarm:
-    """설비별 열화 경보 상태. 판정 결과를 시간순으로 넣으면 정상->경보, 경보->정상 전환을 돌려준다."""
+    """설비별 열화 경보 상태 (히스테리시스).
 
-    def __init__(self):
+    판정 결과(True=열화, False=정상, None=판단 보류)를 시간순으로 넣으면 정상->경보, 경보->정상 전환을 돌려준다.
+    열화 판정이 raise_after구간 연속이면 경보 시작, 정상 판정이 clear_after구간 연속이면 해제.
+    None은 건너뛴다 (연속 횟수를 늘리지도 끊지도 않음).
+    연속 횟수는 판정 주기를 넘어 이어진다. raise_after=clear_after=1이면 판정을 그대로 따른다.
+    """
+
+    def __init__(self, raise_after: int = 1, clear_after: int = 1):
+        self.raise_after = raise_after
+        self.clear_after = clear_after
         self.active: dict[str, bool] = {}
+        self._streak: dict[str, int] = {}  # 현재 상태와 반대인 판정이 연속된 횟수
 
     def update(self, equipment_id: str, flags) -> list[tuple[int, str]]:
         events = []
         state = self.active.get(equipment_id, False)
+        streak = self._streak.get(equipment_id, 0)
         for i, flag in enumerate(flags):
-            flag = bool(flag)
-            if flag != state:
-                events.append((i, "raised" if flag else "cleared"))
-                state = flag
+            if flag is None:
+                continue
+            if bool(flag) == state:
+                streak = 0
+                continue
+            streak += 1
+            if streak >= (self.clear_after if state else self.raise_after):
+                state = not state
+                streak = 0
+                events.append((i, "raised" if state else "cleared"))
         self.active[equipment_id] = state
+        self._streak[equipment_id] = streak
         return events
 
 
@@ -108,11 +131,12 @@ def run_drift(conn, equipment_id: str, rows, drift_models: ModelCache, alarm: Dr
     DRIFT_THRESHOLD.labels(equipment_id).set(bundle["threshold"])
 
     scores, flags = score(bundle, features_for(conn, equipment_id, rows, bundle))
-    if spike_flags is not None:
-        flags = flags & ~np.asarray(spike_flags, dtype=bool)  # 급변으로 설명되는 구간은 열화 근거에서 제외
+    spike = np.zeros(len(rows), dtype=bool) if spike_flags is None else np.asarray(spike_flags, dtype=bool)
     DRIFT_SCORE.labels(equipment_id).set(float(scores[-1]))
-    DRIFT_DETECTED.labels(equipment_id).inc(int(flags.sum()))
-    for i, kind in alarm.update(equipment_id, flags):
+    DRIFT_DETECTED.labels(equipment_id).inc(int((flags & ~spike).sum()))
+    # 급변으로 판정된 구간은 판단 보류(None)
+    judgements = [None if s else bool(f) for f, s in zip(flags, spike)]
+    for i, kind in alarm.update(equipment_id, judgements):
         ts = rows[i][0].isoformat(timespec="seconds")
         if kind == "raised":
             DRIFT_ALARM_RAISED.labels(equipment_id).inc()
@@ -160,7 +184,8 @@ def main():
     start_http_server(METRICS_PORT)
     models = ModelCache(MODEL_DIR)
     drift_models = ModelCache(DRIFT_MODEL_DIR, label="열화 ")
-    alarm = DriftAlarm()
+    alarm = DriftAlarm(DRIFT_RAISE_AFTER, DRIFT_CLEAR_AFTER)
+    log.info("열화 경보: %d구간 연속 열화 판정 시 시작, %d구간 연속 정상 시 해제", DRIFT_RAISE_AFTER, DRIFT_CLEAR_AFTER)
     if not os.path.isdir(DRIFT_MODEL_DIR):
         log.info("열화 모델 없음 (%s) - 급변 판정만 수행. 열화 감시는 train.py --rolling-window 5 --model-dir %s로 학습",
                  DRIFT_MODEL_DIR, DRIFT_MODEL_DIR)
