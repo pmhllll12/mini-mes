@@ -1,77 +1,95 @@
 # mini-mes
 
-제조 현장의 생산실적·설비가동률·품질 이력을 수집·집계·시각화하는
-미니 MES(Manufacturing Execution System)를 처음부터 설계하고,
-클라우드 인프라 배포 파이프라인까지 직접 구축한 개인 프로젝트입니다.
+제조 설비의 생산실적·가동률(OEE)·품질 이력을 수집하고 집계하는 미니 MES(Manufacturing Execution System) 개인 프로젝트입니다.
+Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단계적으로 고도화하며 만들고 있습니다.
+
+> **현재 상태:** 1주차 완료 (핵심 API + 설비 시뮬레이터, Docker Compose로 실행).
+> Terraform, CI/CD, 이상탐지, 자연어 질의는 아직 구현 전입니다.
 
 ## 배경
 
-영풍전자·오스템임플란트·디에스테크노에서 근무하며 수율 데이터 관리와
-가공 품질 관리를 직접 담당했던 경험을, 이제는 그 데이터를 다루는
-시스템 자체를 설계·구현하는 입장에서 재현해보고자 시작했습니다.
+제조 현장에서 수율 데이터 관리와 가공 품질 관리를 담당하며, MES에서 데이터를 뽑는 일이 가장 불편했습니다.
+설비마다 화면을 따로 열어 조건을 걸고, 다운로드한 뒤 엑셀에서 다시 합치고 가공해야 했습니다.
+이 경험을 바탕으로, 그 데이터를 다루는 시스템을 직접 설계해 보는 프로젝트입니다.
 
-팀 프로젝트 [SUPERSUB](https://github.com/pmhllll12/super-sub.cloud)에서
-FastAPI + K3s 기반 인프라 운영에 참여한 경험을 바탕으로,
-이번에는 인프라 설계부터 IaC(Terraform), CI/CD까지 전 과정을
-혼자 설계·구현했습니다.
+팀 프로젝트 [SUPERSUB](https://github.com/pmhllll12/super-sub.cloud)에서 FastAPI·K3s 기반 서비스의
+백엔드/DB 작업에 참여한 경험을 이어, 이 프로젝트에서는 인프라 구성과 배포 자동화를 처음부터 직접 설계하는 것을 목표로 합니다.
 
-## 실무 경험에서 나온 개선점
+## 실무 불편함 → 설계 반영
 
-실무에서 MES 데이터를 뽑을 때 겪었던 불편함을 이 프로젝트의 설계 기준으로 삼았습니다.
+| 실무에서 겪은 불편함 | 이 프로젝트의 해결 | 상태 |
+|---|---|---|
+| 화면에서 기간·설비 조건을 매번 수동 설정 | API 파라미터로 조건 지정 | 구현 |
+| 설비를 하나씩 따로 조회 | `equipment_ids` 다중 지정, 생략 시 전체 설비 일괄 조회 | 구현 |
+| 다운로드 후 엑셀에서 재가공 | 조건에 맞는 CSV를 바로 내려받는 export API | 구현 |
+| 사람이 매번 조작해야 해서 자동화 불가 | REST API 제공 | 구현 |
+| 원하는 정보를 말로 묻고 싶음 | 자연어 질의 (LLM function calling) | 예정 |
+| 같은 리포트를 반복해서 수동 추출 | 예약 리포트 자동 발송 | 예정 |
 
-| 실무에서 겪은 불편함 | 이 프로젝트에서의 해결 |
-|---|---|
-| 화면에서 조건(기간·설비)을 매번 수동으로 설정 | API 파라미터로 조건 지정, 클릭 없이 즉시 조회 |
-| 설비를 하나하나 따로 조회해야 함 | `equipment_ids` 다중 지정 또는 전체 설비 일괄 조회 |
-| 다운로드 후 엑셀에서 재가공(필터링·피벗) | `/export/production-logs`로 원하는 조건의 CSV를 바로 생성 |
-| 자동화 불가능(사람이 매번 조작) | REST API + 자연어 질의로 스크립트/챗봇에서 바로 호출 가능 |
-| 반복적으로 같은 리포트를 매번 새로 뽑음 | (예정) 예약 리포트로 정해진 시간에 자동 발송 |
+## 구현된 API
 
-## 핵심 기능
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET | `/health` | 상태 확인 |
+| GET | `/equipment`, `/equipment/{id}` | 설비 목록·상세 조회 |
+| POST | `/production-logs` | 생산실적 수집 |
+| POST | `/quality-events` | 품질 이벤트(불량 유형·심각도) 수집 |
+| GET | `/equipment/{id}/oee?hours=` | 단일 설비 OEE |
+| GET | `/oee?equipment_ids=&hours=` | 여러 설비(생략 시 전체) OEE 일괄 조회 |
+| GET | `/export/production-logs?equipment_ids=&start=&end=` | 생산실적 CSV 다운로드 |
 
-- 설비 가동현황 실시간 조회 (가동/정지/점검)
-- 생산실적 집계 및 가동률(OEE) 계산
-- 품질 이벤트 이력 관리 (불량 유형/발생 시점 태깅)
-- (5주차 예정) Isolation Forest 기반 이상탐지(예지보전)
-- (6주차 예정) 자연어 질의 API (Gemini function calling)
+## OEE 계산
 
-## 로컬 실행 (1주차)
+OEE = 가동률 × 양품률 (성능 가동률은 제외한 단순화 버전)
+
+- 실제 가동시간 = 사이클타임(제품 1개당 초) × 생산 수량. 구간별 계획시간을 상한으로 적용
+- 가동률 = 실제 가동시간 합 / 계획시간 합 (항상 0~1)
+- 양품률 = 양품 수 / (양품 + 불량)
+
+## 실행
+
+Docker와 Docker Compose가 필요합니다.
 
 ```bash
-git clone <this-repo>
+git clone https://github.com/pmhllll12/mini-mes.git
 cd mini-mes
-docker compose up --build
+docker compose up --build -d
 ```
 
-- API: http://localhost:8000/docs (FastAPI 자동 문서)
-- 설비 시뮬레이터 실행:
+- API 문서(Swagger): http://localhost:8001/docs
+- 호스트 포트는 `docker-compose.yml`의 `8001:8000`에서 바꿀 수 있습니다.
+
+### 설비 시뮬레이터
+
+실제 설비 데이터가 아니라, 정상 패턴과 이상 패턴을 섞어 생성하는 가상 데이터입니다.
+1회 전송이 `--window-sec`초 분량의 생산실적이고, 생산 수량은 사이클타임과 구간 길이에서 계산합니다.
 
 ```bash
 cd simulator
-pip install requests
-python simulate.py --api-url http://localhost:8000 --interval 5
+python3 simulate.py --api-url http://localhost:8001 --interval 2 --anomaly-rate 0.2 --max-ticks 30
 ```
 
-시뮬레이터가 5초마다 3개 설비의 생산실적을 API로 전송하고,
-`--anomaly-rate`로 이상 데이터 발생 빈도를 조절할 수 있습니다
-(5주차 이상탐지 모델 검증에 사용).
-
-## 가동률(OEE) 조회 예시
+### 조회 예시
 
 ```bash
-curl "http://localhost:8000/equipment/EQ-001/oee?hours=1"
+# 전체 설비 OEE를 한 번에
+curl "http://localhost:8001/oee?hours=1"
+
+# 특정 설비 2개만
+curl "http://localhost:8001/oee?equipment_ids=EQ-001&equipment_ids=EQ-003&hours=1"
+
+# 전체 설비 생산실적을 CSV로
+curl "http://localhost:8001/export/production-logs?start=2020-01-01T00:00:00Z" -o report.csv
 ```
 
 ```json
 {
   "equipment_id": "EQ-001",
-  "period_start": "...",
-  "period_end": "...",
-  "availability": 0.94,
-  "quality_rate": 0.91,
-  "oee": 0.856,
-  "total_qty": 240,
-  "total_defect": 22
+  "availability": 0.8865,
+  "quality_rate": 0.9375,
+  "oee": 0.8311,
+  "total_qty": 112,
+  "total_defect": 7
 }
 ```
 
@@ -81,33 +99,34 @@ curl "http://localhost:8000/equipment/EQ-001/oee?hours=1"
 [설비 시뮬레이터] → [FastAPI 수집 API] → [PostgreSQL]
                                               ↓
                                     [FastAPI 조회/집계 API]
-                                              ↓
-                                    [Grafana 대시보드]
 ```
 
-Docker Compose(로컬) → K3s/Helm → Terraform → GitHub Actions CI/CD 순으로
-단계적으로 인프라를 고도화할 예정입니다.
+이후 단계에서 Grafana 대시보드, 이상탐지 워커, 자연어 질의 API를 추가할 예정입니다.
 
 ## 기술 스택
 
-- Backend: FastAPI, SQLAlchemy, PostgreSQL
-- Infra: Docker, Kubernetes(K3s), Helm, Terraform
-- CI/CD: GitHub Actions
-- Monitoring: Prometheus, Grafana
-- AI: scikit-learn(Isolation Forest), Gemini(function calling)
+- 현재: Python, FastAPI, SQLAlchemy, PostgreSQL 16, Docker Compose
+- 예정: K3s, Helm, Terraform, GitHub Actions, Prometheus/Grafana, scikit-learn(Isolation Forest), Gemini(function calling)
 
 ## 로드맵
 
 | 주차 | 내용 | 상태 |
 |---|---|---|
-| 1주 | 스키마 설계, FastAPI 수집/조회 API, 시뮬레이터 | ✅ |
-| 2주 | OEE 계산 로직 고도화, 대시보드용 집계 API | |
-| 3주 | Docker Compose 전체 스택 검증 | |
+| 1주 | 스키마 설계, FastAPI 수집/조회 API, 시뮬레이터, 다중 설비 조회·CSV export | ✅ |
+| 2주 | 불량 수량과 품질 이벤트의 연결 정리, 집계 API 보강 | |
+| 3주 | Docker Compose 전체 스택 검증 (로컬 실행은 확인 완료) | |
 | 4주 | K3s/Helm 배포 전환 | |
 | 5주 | 이상탐지(예지보전) 워커 추가 | |
 | 6주 | 자연어 질의 API 추가 | |
-| 7주 | Terraform, CI/CD, 문서화/데모 영상 | |
+| 7주 | Terraform, CI/CD, 문서화·데모 영상 | |
+
+## 알려진 한계
+
+- 데이터는 시뮬레이터가 만든 가상 데이터이며 실제 설비 데이터가 아닙니다.
+- `production_log.qty_defect`와 `quality_event`가 아직 서로 연결되어 있지 않습니다. (2주차에 정리 예정)
+- 설비 `status`는 현재 자동으로 갱신되지 않습니다.
+- `db/schema.sql`은 DB 최초 생성 시 한 번만 적용됩니다. 스키마를 바꾸면 `docker compose down -v` 후 다시 띄워야 합니다.
 
 ## 개발 기간
 
-2026.XX ~ 2026.XX
+2026.09 ~ 진행 중
