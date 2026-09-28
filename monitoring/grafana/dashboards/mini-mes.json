@@ -118,12 +118,12 @@
     {
       "id": 6,
       "title": "이상 점수 추이",
-      "description": "anomaly-worker가 판정 주기마다 계산한 설비별 최대 이상 점수(클수록 이상). 점선은 설비별 threshold.",
+      "description": "anomaly-worker가 판정 주기마다 계산한 설비별 최대 이상 점수(클수록 이상, v2는 1 근처가 threshold이고 범위 밖으로 멀어질수록 계속 커짐). 점선은 설비별 threshold.",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
       "gridPos": { "h": 8, "w": 16, "x": 0, "y": 24 },
       "fieldConfig": {
-        "defaults": { "unit": "short", "min": 0, "max": 1, "decimals": 3 },
+        "defaults": { "unit": "short", "min": 0, "decimals": 3 },
         "overrides": [
           {
             "matcher": { "id": "byRegexp", "options": ".*threshold$" },

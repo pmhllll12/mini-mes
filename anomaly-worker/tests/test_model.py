@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from features import extract_features
-from model import fit_model, load_bundle, model_path, save_bundle, score
+from model import fit_model, load_bundle, model_path, robust_center_scale, save_bundle, score
 
 
 def _normal_rows(n: int, seed: int = 0):
@@ -67,3 +67,36 @@ def test_save_and_load_roundtrip(tmp_path, trained):
 
 def test_load_missing_model_returns_none(tmp_path):
     assert load_bundle(str(tmp_path), "EQ-NONE") is None
+
+
+def test_score_keeps_growing_outside_training_range(trained):
+    """Isolation Forest 단독(v1)은 학습 범위 밖에서 점수가 포화됐다. v2는 멀어질수록 커져야 한다."""
+    X, bundle = trained
+    med = np.median(X, axis=0)
+    rows = []
+    for factor in (1.3, 2.0, 3.0):
+        x = med.copy()
+        x[0] *= factor   # 사이클타임 증가
+        x[1] /= factor   # 그만큼 생산 수량 감소, 불량률은 정상 중앙값 그대로
+        rows.append(x)
+    scores, flags = score(bundle, np.asarray(rows))
+    assert scores[0] < scores[1] < scores[2]
+    # 불량률은 정상인데 사이클타임만 2배 이상 - v1이 놓치던 유형
+    assert flags[1] and flags[2]
+
+
+def test_robust_scale_falls_back_when_mad_is_zero():
+    # 불량률이 대부분 0인 설비: MAD=0 -> 표준편차 사용, 모두 같으면 1
+    X = np.array([[12.0, 5.0, 0.0]] * 9 + [[12.0, 5.0, 0.25]])
+    center, scale = robust_center_scale(X)
+    np.testing.assert_allclose(center, [12.0, 5.0, 0.0])
+    assert scale[2] == pytest.approx(X[:, 2].std())
+    assert scale[0] == 1.0 and scale[1] == 1.0
+
+
+def test_legacy_v1_bundle_still_scores(trained):
+    X, bundle = trained
+    legacy = {"model": bundle["model"], "threshold": 0.7, "threshold_quantile": 0.99}
+    scores, flags = score(legacy, X[:5])
+    np.testing.assert_allclose(scores, -bundle["model"].score_samples(X[:5]))
+    assert (flags == (scores > 0.7)).all()

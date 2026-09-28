@@ -57,13 +57,14 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 
 > **이 결과는 시뮬레이터가 만든 가상 데이터 기준이며 실제 설비 성능이 아니다.**
 
-학습(정상 데이터만, 900건)과 평가(이상 비율 21.5%, 1500건)는 서로 다른 시뮬레이터 실행분입니다.
+학습(정상 데이터만, 900건)과 평가(이상 비율 19.3%, 1500건)는 서로 다른 시뮬레이터 실행분입니다.
 
-| | Precision | Recall | F1 |
+| 모델 | Precision | Recall | F1 |
 |---|---|---|---|
-| 전체 | 0.896 | 0.453 | 0.602 |
+| v2: Isolation Forest + robust z-score (현재) | 0.920 | 1.000 | 0.959 |
+| v1: Isolation Forest 단독 (같은 평가 데이터로 재채점) | 0.812 | 0.388 | 0.525 |
 
-Recall이 낮은 원인(Isolation Forest의 점수 포화)과 설비별 결과는 [이상탐지 페이지]({{ '/anomaly-detection/' | relative_url }})에 정리했습니다.
+v1의 recall이 낮았던 원인(Isolation Forest의 점수 포화), 개선 과정, 설비별 결과와 주의사항은 [이상탐지 페이지]({{ '/anomaly-detection/' | relative_url }})에 정리했습니다.
 
 ## 기술 스택
 
