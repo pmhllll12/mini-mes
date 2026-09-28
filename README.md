@@ -100,6 +100,42 @@ curl "http://localhost:8001/export/production-logs?start=2020-01-01T00:00:00Z" -
 }
 ```
 
+## 이상탐지 워커 (예지보전)
+
+`anomaly-worker/`는 API와 분리된 별도 컨테이너(`docker compose`의 `anomaly-worker` 서비스)입니다.
+
+- 특징(`features.py`): 생산실적 1건당 사이클타임, 구간당 생산 수량(`qty_good+qty_defect`), 불량률
+- 모델(`model.py`): 설비별 Isolation Forest. `anomaly_score = -score_samples()`(클수록 이상), threshold는 학습(정상) 데이터 점수의 99% 분위수
+- 워커(`worker.py`): 10초마다 설비별로 아직 판정하지 않은 최근 24시간 생산실적을 추론해 `anomaly_result`에 `anomaly_score`, `is_anomaly`를 기록
+  - `anomaly_result`에는 log_id가 없으므로 `ts`에 생산실적의 `ts`를 그대로 넣고, `(equipment_id, ts)`가 이미 있으면 기록하지 않아 중복을 막습니다.
+  - 학습에 쓴 구간(모델의 `train_end` 이전)은 추론하지 않습니다.
+  - 모델 파일이 없으면 죽지 않고 `모델 없음: ...` 로그를 남기고 대기하며, 학습이 끝나면 재시작 없이 새 모델을 읽습니다.
+- 모델 저장: `anomaly_models` 볼륨의 `/models/{equipment_id}.joblib` — 컨테이너를 재시작하거나 다시 빌드해도 유지됩니다.
+
+### 학습 (정상 데이터만 사용)
+
+Isolation Forest는 **정상 데이터만으로** 학습합니다. 이상이 섞인 구간이 들어가지 않도록 `train.py`는 학습 구간 시작(`--since`)을 반드시 받습니다.
+
+```bash
+# 1) 정상 전용 시뮬레이터를 돌리기 직전 시각을 기록
+TRAIN_SINCE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+# 2) 이상 비율 0으로 학습용 데이터 생성 (설비당 300건)
+cd simulator
+python3 simulate.py --api-url http://localhost:8001 --interval 0 --anomaly-rate 0 --max-ticks 300
+cd ..
+
+# 3) 그 구간만으로 설비별 모델 학습 (결과는 anomaly_models 볼륨에 저장)
+docker compose run --rm anomaly-worker python train.py --since "$TRAIN_SINCE"
+
+# 4) 워커 로그 확인 (모델 로드 → 이후 들어오는 생산실적 판정)
+docker compose logs -f anomaly-worker
+```
+
+학습 구간 안에 다른 시뮬레이터(이상 비율 > 0)가 동시에 데이터를 보내고 있으면 안 됩니다. 필요하면 `--until`로 끝 시각도 지정할 수 있습니다.
+
+> **주의:** `docker compose down -v`는 DB 볼륨(`mes_pgdata`)과 함께 **모델 볼륨(`anomaly_models`)도 지웁니다.** 그 뒤에는 워커가 `모델 없음` 상태로 대기하므로, 위 1)~3)을 다시 실행해 재학습해야 합니다.
+
 ## 아키텍처
 
 ```

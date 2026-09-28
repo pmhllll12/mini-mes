@@ -27,6 +27,20 @@ services:
       db:
         condition: service_healthy
 
+  anomaly-worker:
+    build:
+      context: ./anomaly-worker
+    environment:
+      DATABASE_URL: postgresql://mes_user:mes_password@db:5432/mini_mes
+      MODEL_DIR: /models
+      INTERVAL_SEC: "10"
+    volumes:
+      - anomaly_models:/models
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+
   prometheus:
     image: prom/prometheus:v2.55.1
     volumes:
@@ -53,3 +67,4 @@ services:
 
 volumes:
   mes_pgdata:
+  anomaly_models:
