@@ -13,6 +13,7 @@ FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana (이후 
 - simulator/simulate.py : 가상 설비 데이터 전송기
 - monitoring/ : Prometheus 스크레이프 설정, Grafana 데이터소스·대시보드 프로비저닝
 - .github/workflows/ci.yml : push/PR 시 lint(ruff)·테스트(pytest)·Docker 빌드
+- charts/mini-mes/ : api·db Helm 차트 (k3d/minikube 로컬 검증용, 서버 배포 대상 미정). files/schema.sql은 db/schema.sql 복사본이므로 수동 동기화 필요
 
 ## 로컬 실행 주의
 - API 포트는 호스트 8001 (8000은 WSL의 다른 프로세스가 사용 중)

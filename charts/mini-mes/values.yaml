@@ -1,0 +1,19 @@
+image:
+  repository: mini-mes-api
+  tag: latest
+  pullPolicy: IfNotPresent
+
+api:
+  replicaCount: 1
+  port: 8000
+  service:
+    type: ClusterIP
+    port: 8001
+
+db:
+  image: postgres:16
+  port: 5432
+  storage: 1Gi
+  user: mes_user
+  password: mes_password
+  database: mini_mes

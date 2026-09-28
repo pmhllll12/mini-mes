@@ -3,8 +3,8 @@
 제조 설비의 생산실적·가동률(OEE)·품질 이력을 수집하고 집계하는 미니 MES(Manufacturing Execution System) 개인 프로젝트입니다.
 Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단계적으로 고도화하며 만들고 있습니다.
 
-> **현재 상태:** 3주차 완료 (핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링, Docker Compose로 실행).
-> Terraform, CI/CD, 이상탐지, 자연어 질의는 아직 구현 전입니다.
+> **현재 상태:** 4주차 완료 (핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링, GitHub Actions CI, Helm 차트 + k3d 로컬 검증).
+> Terraform, 이상탐지, 자연어 질의는 아직 구현 전이며, K3s 서버 배포 대상도 아직 정하지 않았습니다.
 
 ## 배경
 
@@ -137,10 +137,46 @@ pytest -v
 
 `oee.py`의 가동률 계산은 `run_time`이 `planned_time`을 넘어도 1.0을 넘지 않도록 상한을 두는데, `api/tests/test_oee_unit.py`에서 이 상한이 실제로 지켜지는지 단위 테스트로 검증합니다.
 
+## K3s/Helm (로컬 검증)
+
+`charts/mini-mes/`에 api·db를 옮기는 Helm 차트가 있습니다. 어느 서버에 배포할지는 아직 정하지 않아, 이 단계에서는 k3d(또는 minikube)로 로컬 검증만 합니다.
+
+- DB 접속 정보(`POSTGRES_USER`/`PASSWORD`/`DB`, `DATABASE_URL`)는 Secret(`templates/secret.yaml`)로 관리
+- DB 저장소는 PersistentVolumeClaim(`templates/db-pvc.yaml`, 기본 1Gi) — Pod를 지워도 데이터가 유지되는 것까지 확인함
+- api는 `/health` 기반 readiness/liveness probe 설정
+- `charts/mini-mes/files/schema.sql`은 `db/schema.sql`의 복사본입니다(Helm이 차트 밖 파일을 직접 읽지 못해 ConfigMap용으로 넣어둠). **스키마를 바꾸면 두 파일을 함께 수정해야 합니다.**
+
+### k3d로 검증하기
+
+```bash
+# 1) 클러스터 생성
+k3d cluster create mini-mes
+
+# 2) API 이미지 빌드 후 클러스터로 반입 (레지스트리 없이 로컬 이미지를 그대로 사용)
+docker build -t mini-mes-api:latest ./api
+k3d image import mini-mes-api:latest -c mini-mes
+
+# 3) 차트 설치
+helm install mini-mes charts/mini-mes
+
+# 4) 파드가 뜰 때까지 대기 후 확인
+kubectl get pods -w
+kubectl port-forward svc/mini-mes-api 8001:8001
+curl http://localhost:8001/health
+
+# 5) 정리
+helm uninstall mini-mes
+k3d cluster delete mini-mes
+```
+
+minikube를 쓴다면 2)의 `k3d image import` 대신 `minikube image load mini-mes-api:latest`를 사용하면 됩니다.
+
+**확인된 동작:** DB 파드가 준비되기 전에 api 파드가 DB 연결 실패로 몇 차례 재시작될 수 있는데(readiness/liveness probe와 별개로, 앱이 시작 시 DB에 연결을 시도하기 때문), Kubernetes가 자동으로 재시도하면서 DB가 준비되면 정상화됩니다. `docker-compose.yml`의 `depends_on: condition: service_healthy`에 해당하는 대기 로직은 아직 차트에 없습니다.
+
 ## 기술 스택
 
-- 현재: Python, FastAPI, SQLAlchemy, PostgreSQL 16, Docker Compose, Prometheus, Grafana
-- 예정: K3s, Helm, Terraform, GitHub Actions, scikit-learn(Isolation Forest), Gemini(function calling)
+- 현재: Python, FastAPI, SQLAlchemy, PostgreSQL 16, Docker Compose, Prometheus, Grafana, GitHub Actions, Helm/k3d(로컬 검증)
+- 예정: Terraform, K3s 서버 배포, scikit-learn(Isolation Forest), Gemini(function calling)
 
 ## 로드맵
 
@@ -149,7 +185,7 @@ pytest -v
 | 1주 | 스키마 설계, FastAPI 수집/조회 API, 시뮬레이터, 다중 설비 조회·CSV export | ✅ |
 | 2주 | `quality_event`에 `production_log_id`(nullable FK) 추가, 설비별·불량유형별 불량 집계 API(`/quality/defect-summary`), 시뮬레이터가 불량 발생 시 연결된 품질 이벤트도 함께 전송, 설비 status 자동 갱신 | ✅ |
 | 3주 | Prometheus + Grafana 모니터링 스택 추가 (`/metrics`, 대시보드 프로비저닝) | ✅ |
-| 4주 | K3s/Helm 배포 전환 | |
+| 4주 | Helm 차트 작성 + k3d 로컬 검증 (Secret/PVC/probe, 서버 배포 대상은 미정) | ✅ |
 | 5주 | 이상탐지(예지보전) 워커 추가 | |
 | 6주 | 자연어 질의 API 추가 | |
 | 7주 | Terraform, 문서화·데모 영상 (GitHub Actions CI는 완료) | |
