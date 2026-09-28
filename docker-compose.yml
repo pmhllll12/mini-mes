@@ -1,0 +1,31 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: mini_mes
+      POSTGRES_USER: mes_user
+      POSTGRES_PASSWORD: mes_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - mes_pgdata:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mes_user -d mini_mes"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./api
+    environment:
+      DATABASE_URL: postgresql://mes_user:mes_password@db:5432/mini_mes
+    ports:
+      - "8001:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  mes_pgdata:
