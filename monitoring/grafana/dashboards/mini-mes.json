@@ -250,6 +250,56 @@
           "refId": "B"
         }
       ]
+    },
+    {
+      "id": 10,
+      "title": "자연어 질의 요청 (최근 1시간, 제공자·결과별)",
+      "description": "POST /query 요청 수. outcome: answer(정상 답변) / max_rounds(도구 호출 한도 도달) / max_tokens / refusal(모델 거절) / error(LLM API 오류 - 한도 초과 429, 과부하 503 등). 키가 없어 503으로 거절된 요청은 세지 않음.",
+      "type": "bargauge",
+      "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 40 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0, "decimals": 0 },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+          "expr": "round(sum(increase(mes_nlq_requests_total[1h])) by (provider, outcome))",
+          "legendFormat": "{{provider}} / {{outcome}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "자연어 질의 도구 호출 (최근 1시간)",
+      "description": "LLM이 호출한 읽기 전용 도구 수. ok=false는 인자 검증 실패(없는 설비, 기간 오류 등)로 LLM에 오류를 돌려준 호출.",
+      "type": "bargauge",
+      "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 40 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0, "decimals": 0 },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+          "expr": "round(sum(increase(mes_nlq_tool_calls_total[1h])) by (tool, ok))",
+          "legendFormat": "{{tool}} (ok={{ok}})",
+          "refId": "A"
+        }
+      ]
     }
   ]
 }

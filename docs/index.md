@@ -10,6 +10,7 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 - 소스 코드: [github.com/pmhllll12/mini-mes](https://github.com/pmhllll12/mini-mes)
 - 실행 방법·API 상세: [README](https://github.com/pmhllll12/mini-mes#readme)
 - 이상탐지 설계와 성능 평가: [이상탐지]({{ '/anomaly-detection/' | relative_url }})
+- 자연어 질의 설계와 평가: [자연어 질의]({{ '/nlq/' | relative_url }})
 
 > **현재 상태:** 6주차 진행 중 — 핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링, GitHub Actions CI, Helm 차트 + k3d 로컬 검증, 이상탐지 워커 + 가상 데이터 기준 성능 평가, 자연어 질의 API(Gemini로 부분 평가, Claude 미평가).
 > Terraform은 아직 구현 전이며, K3s 서버 배포 대상도 아직 정하지 않았습니다.

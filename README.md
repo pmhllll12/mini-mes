@@ -182,6 +182,7 @@ docker compose logs -f anomaly-worker
 ## 자연어 질의 (LLM function calling)
 
 `POST /query`에 질문을 보내면 LLM이 **읽기 전용 도구**를 골라 호출하고, 그 결과로 답합니다. LLM은 SQL을 만들지 않습니다.
+설계·평가·발견한 문제는 **[자연어 질의 상세 문서](docs/nlq.md)**([GitHub Pages](https://pmhllll12.github.io/mini-mes/nlq/))에 정리했습니다.
 
 ```bash
 curl -X POST http://localhost:8001/query -H 'Content-Type: application/json' \
@@ -194,7 +195,7 @@ curl -X POST http://localhost:8001/query -H 'Content-Type: application/json' \
 - 응답에 **호출한 도구·인자·결과**를 함께 돌려줘 답변의 근거를 확인할 수 있습니다. 도구 호출은 최대 3라운드, 그 뒤에는 도구 없이 답변만 받습니다.
 - 제공자 두 가지 (`api/nlq_providers.py`): Claude(`claude-opus-5`, strict 도구, 거절 시 서버측 `fallbacks="default"`) / Gemini(`gemini-flash-latest`, 수동 function calling). 요청의 `provider`, 환경변수 `NLQ_PROVIDER`, 키가 있는 제공자 순으로 고릅니다.
 - **API 키는 `.env`에만** 넣습니다: `cp .env.example .env` 후 `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` 입력 (`.env`는 커밋되지 않음). 키가 없으면 `/query`만 503이고 다른 API는 그대로 동작합니다.
-- 메트릭: `mes_nlq_requests_total{provider,outcome}`, `mes_nlq_tool_calls_total{provider,tool,ok}`
+- 메트릭: `mes_nlq_requests_total{provider,outcome}`, `mes_nlq_tool_calls_total{provider,tool,ok}` — Grafana "자연어 질의 요청", "자연어 질의 도구 호출" 패널
 
 **평가** (`evaluate/nlq_eval.py`, 질문 12개): 도구 선택, 설비·기간 인자, 도구 결과를 답변에 그대로 전했는지(근거), 없는 설비·조회 불가 항목·범위 밖 질문에 추측 없이 안내하는지를 채점합니다.
 
@@ -237,6 +238,7 @@ curl -X POST http://localhost:8001/query -H 'Content-Type: application/json' \
 - Prometheus: http://localhost:9090 (설정: `monitoring/prometheus/prometheus.yml`, 10초 간격으로 API `/metrics` 스크레이프)
 - Grafana: http://localhost:3000 (admin/admin, 로컬 전용 기본 계정) — "mini-mes 개요" 대시보드가 자동으로 로드됨
   - 이상탐지 패널: "이상 점수 추이"(설비별 점수 + 점선 threshold), "이상 탐지 횟수 (최근 1시간)", "열화 점수 추이", "열화 경보 상태"(경보 여부 + 최근 1시간 경보 횟수)
+  - 자연어 질의 패널: "자연어 질의 요청 (최근 1시간, 제공자·결과별)", "자연어 질의 도구 호출 (최근 1시간)"
   - 프로비저닝 파일: `monitoring/grafana/provisioning/`(datasource·dashboard 등록), `monitoring/grafana/dashboards/mini-mes.json`(대시보드 정의)
 
 ## 테스트 / CI
