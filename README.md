@@ -6,6 +6,8 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 > **현재 상태:** 5주차 완료 (핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링, GitHub Actions CI, Helm 차트 + k3d 로컬 검증, 이상탐지 워커 + 가상 데이터 기준 성능 평가).
 > Terraform, 자연어 질의는 아직 구현 전이며, K3s 서버 배포 대상도 아직 정하지 않았습니다.
 
+프로젝트 소개 페이지(GitHub Pages, Jekyll): https://pmhllll12.github.io/mini-mes/ — 소스는 `docs/` (로컬 미리보기: `cd docs && jekyll serve`)
+
 ## 배경
 
 제조 현장에서 수율 데이터 관리와 가공 품질 관리를 담당하며, MES에서 데이터를 뽑는 일이 가장 불편했습니다.

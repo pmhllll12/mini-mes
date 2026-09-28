@@ -15,6 +15,7 @@ FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana, GitHub 
 - simulator/simulate.py : 가상 설비 데이터 전송기. --labels-file로 이상 여부 라벨(JSONL, run_id 단위)을 남김. labels.jsonl은 gitignore
 - monitoring/ : Prometheus 스크레이프 설정(api, anomaly-worker), Grafana 데이터소스·대시보드 프로비저닝
 - .github/workflows/ci.yml : push/PR 시 lint(ruff)·API 테스트·워커/평가 단위 테스트·API/워커 Docker 빌드
+- docs/ : GitHub Pages(Jekyll, minima 테마) 소개 사이트 (index.md 개요, anomaly-detection.md 평가 상세). README의 수치·로드맵을 바꾸면 함께 갱신
 - charts/mini-mes/ : api·db Helm 차트 (k3d/minikube 로컬 검증용, 서버 배포 대상 미정). files/schema.sql은 db/schema.sql 복사본이므로 수동 동기화 필요
 
 ## 로컬 실행 주의

@@ -1,0 +1,18 @@
+# GitHub Pages (Jekyll) 설정 - 저장소 Settings > Pages에서 "main 브랜치 /docs"로 배포
+title: mini-mes
+description: 제조 설비의 생산실적·가동률(OEE)·품질이력을 수집/집계하는 미니 MES 개인 프로젝트
+lang: ko
+baseurl: "/mini-mes"
+url: "https://pmhllll12.github.io"
+repository: pmhllll12/mini-mes
+github_username: pmhllll12
+
+theme: minima
+plugins:
+  - jekyll-seo-tag
+
+header_pages:
+  - index.md
+  - anomaly-detection.md
+
+markdown: kramdown
