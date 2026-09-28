@@ -5,6 +5,7 @@ Prometheus 메트릭
   설비별 최근 OEE_WINDOW_HOURS 동안의 OEE/가동률/양품률 (스크레이프 시점에 계산)
 - mes_defect_qty: 설비별·불량유형별 최근 DEFECT_WINDOW_HOURS 동안의 불량 수량 (스크레이프 시점에 계산)
 - mes_http_requests_total / mes_http_request_duration_seconds: API 요청 수·지연시간 (미들웨어에서 직접 기록)
+- mes_nlq_requests_total / mes_nlq_tool_calls_total: 자연어 질의 요청 수(제공자·결과별), LLM의 도구 호출 수
 """
 from datetime import datetime, timedelta, timezone
 
@@ -24,6 +25,12 @@ HTTP_REQUEST_COUNT = Counter(
 )
 HTTP_REQUEST_LATENCY = Histogram(
     "mes_http_request_duration_seconds", "HTTP request latency (seconds)", ["method", "path"]
+)
+NLQ_REQUESTS = Counter(
+    "mes_nlq_requests_total", "자연어 질의 요청 수", ["provider", "outcome"]
+)
+NLQ_TOOL_CALLS = Counter(
+    "mes_nlq_tool_calls_total", "자연어 질의에서 LLM이 호출한 도구 수", ["provider", "tool", "ok"]
 )
 
 

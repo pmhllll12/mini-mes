@@ -1,6 +1,8 @@
 import csv
 import io
+import os
 import time
+from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
@@ -16,6 +18,8 @@ import schemas
 from oee import calculate_oee
 from quality import calculate_defect_summary
 from anomaly import summarize_anomalies
+from nlq_providers import ClaudeProvider, GeminiProvider, NLQProviderError, user_message
+from nlq_tools import TOOL_NAMES, ToolError, execute_tool
 
 # 로컬 개발 편의를 위해 앱 시작 시 테이블 자동 생성
 # (운영에서는 schema.sql / 마이그레이션 도구를 통해 관리)
@@ -23,7 +27,7 @@ Base.metadata.create_all(bind=engine)
 
 # metrics 모듈은 import 시점(REGISTRY.register)에 곧바로 DB를 조회하므로,
 # 테이블이 만들어지는 create_all 이후에 import해야 한다.
-from metrics import HTTP_REQUEST_COUNT, HTTP_REQUEST_LATENCY  # noqa: E402
+from metrics import HTTP_REQUEST_COUNT, HTTP_REQUEST_LATENCY, NLQ_REQUESTS, NLQ_TOOL_CALLS  # noqa: E402
 
 app = FastAPI(title="mini-mes", version="0.1.0")
 
@@ -232,6 +236,57 @@ def get_anomalies(
         raise HTTPException(status_code=404, detail="no equipment registered")
 
     return summarize_anomalies(db, targets, start, end)
+
+
+# ---------- 자연어 질의 (LLM function calling) ----------
+
+NLQ_MAX_ROUNDS = int(os.getenv("NLQ_MAX_ROUNDS", "3"))
+NLQ_TIMEOUT_SEC = float(os.getenv("NLQ_TIMEOUT_SEC", "60"))
+
+
+def get_nlq_provider(requested: Optional[str]):
+    """요청의 provider > 환경변수 NLQ_PROVIDER > 키가 있는 제공자(claude, gemini 순).
+    키가 없으면 503 - 자연어 질의만 비활성이고 다른 API는 영향 없음."""
+    keys = {
+        "claude": os.getenv("ANTHROPIC_API_KEY", "").strip(),
+        "gemini": os.getenv("GEMINI_API_KEY", "").strip(),
+    }
+    name = requested or os.getenv("NLQ_PROVIDER", "").strip().lower() or next((p for p in keys if keys[p]), None)
+    if name is None:
+        raise HTTPException(status_code=503, detail="자연어 질의 비활성: ANTHROPIC_API_KEY 또는 GEMINI_API_KEY를 설정하세요")
+    if name not in keys:
+        raise HTTPException(status_code=400, detail=f"알 수 없는 provider: {name} (claude 또는 gemini)")
+    if not keys[name]:
+        raise HTTPException(status_code=503, detail=f"자연어 질의 비활성: {name} API 키가 설정되지 않았습니다")
+    if name == "claude":
+        return ClaudeProvider(keys[name], os.getenv("CLAUDE_MODEL") or "claude-opus-5", NLQ_TIMEOUT_SEC)
+    return GeminiProvider(keys[name], os.getenv("GEMINI_MODEL") or "gemini-flash-latest", NLQ_TIMEOUT_SEC)
+
+
+@app.post("/query", response_model=schemas.QueryOut)
+def natural_language_query(payload: schemas.QueryIn, db: Session = Depends(get_db)):
+    """자연어 질문 -> LLM이 읽기 전용 도구(설비 목록, OEE, 불량 집계, 이상탐지)를 골라 호출 -> 답변.
+    응답에 호출한 도구·인자·결과를 함께 담아 답변의 근거를 확인할 수 있게 한다.
+    """
+    provider = get_nlq_provider(payload.provider)
+
+    def run_tool(name: str, args: dict):
+        label = name if name in TOOL_NAMES else "unknown"
+        try:
+            result = execute_tool(db, name, args)
+        except ToolError as e:
+            NLQ_TOOL_CALLS.labels(provider.name, label, "false").inc()
+            return False, str(e)
+        NLQ_TOOL_CALLS.labels(provider.name, label, "true").inc()
+        return True, result
+
+    try:
+        result = provider.run(user_message(payload.question), run_tool, NLQ_MAX_ROUNDS)
+    except NLQProviderError as e:
+        NLQ_REQUESTS.labels(provider.name, "error").inc()
+        raise HTTPException(status_code=502, detail=str(e))
+    NLQ_REQUESTS.labels(provider.name, result.stop).inc()
+    return asdict(result)
 
 
 @app.get("/export/production-logs")

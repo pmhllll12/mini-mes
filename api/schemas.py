@@ -1,6 +1,6 @@
 from datetime import datetime
-from typing import List, Optional
-from pydantic import BaseModel, ConfigDict
+from typing import Any, Dict, List, Literal, Optional
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ProductionLogIn(BaseModel):
@@ -78,3 +78,26 @@ class AnomalySummary(BaseModel):
     max_score: Optional[float]    # 기간 내 최대 이상 점수 (판정 0건이면 null)
     last_scored_ts: Optional[datetime]
     anomalies: List[AnomalyPoint]  # is_anomaly = true 인 건 (최신순)
+
+
+class QueryIn(BaseModel):
+    """자연어 질의 요청"""
+    question: str = Field(min_length=1, max_length=500)
+    provider: Optional[Literal["claude", "gemini"]] = None  # 생략 시 NLQ_PROVIDER 또는 키가 있는 제공자
+
+
+class QueryToolCall(BaseModel):
+    name: str
+    input: Dict[str, Any]
+    ok: bool
+    result: Optional[Any] = None   # 도구가 돌려준 데이터 (답변의 근거)
+    error: Optional[str] = None
+
+
+class QueryOut(BaseModel):
+    """자연어 질의 응답 - 답변과 함께 호출한 도구·인자·결과를 돌려줘 근거를 확인할 수 있게 한다"""
+    provider: str
+    model: str
+    answer: str
+    stop: str                      # answer | max_rounds | max_tokens | refusal
+    tool_calls: List[QueryToolCall]

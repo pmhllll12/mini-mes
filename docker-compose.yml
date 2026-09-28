@@ -21,6 +21,12 @@ services:
       context: ./api
     environment:
       DATABASE_URL: postgresql://mes_user:mes_password@db:5432/mini_mes
+      # 자연어 질의(/query) - 값은 프로젝트 루트의 .env에서 읽는다 (.env.example 참고, .env는 커밋하지 않음)
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      NLQ_PROVIDER: ${NLQ_PROVIDER:-}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-}
     ports:
       - "8001:8000"
     depends_on:
