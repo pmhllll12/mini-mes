@@ -34,11 +34,13 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 ## 아키텍처
 
 ```
-[설비 시뮬레이터] → [FastAPI 수집 API] → [PostgreSQL]
-                                              ↓
-                                    [FastAPI 조회/집계 API] → /metrics → [Prometheus] → [Grafana]
-                                              ↑                                  ↑
-                          [anomaly-worker] ──(anomaly_result 기록)          /metrics(:9100)
+[설비 시뮬레이터] → [FastAPI 수집 API] → [PostgreSQL] ←──(급변 판정 기록)── [anomaly-worker]
+                                              ↓                                   │ 급변·열화 판정
+                                    [FastAPI 조회/집계 API]                       │
+                                              │ /metrics                          │ /metrics(:9100, 열화 경보)
+                                              └──────────→ [Prometheus] ←─────────┘
+                                                                 ↓
+                                                             [Grafana]
 ```
 
 ## 주요 기능
