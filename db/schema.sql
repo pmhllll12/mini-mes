@@ -22,16 +22,20 @@ CREATE INDEX IF NOT EXISTS idx_production_log_equipment_ts
     ON production_log (equipment_id, ts DESC);
 
 CREATE TABLE IF NOT EXISTS quality_event (
-    event_id        BIGSERIAL PRIMARY KEY,
-    equipment_id    VARCHAR(20) NOT NULL REFERENCES equipment(equipment_id),
-    ts              TIMESTAMPTZ NOT NULL DEFAULT now(),
-    defect_type     VARCHAR(50) NOT NULL,
-    severity        VARCHAR(10) NOT NULL DEFAULT 'low', -- low / medium / high
-    note            TEXT
+    event_id            BIGSERIAL PRIMARY KEY,
+    equipment_id        VARCHAR(20) NOT NULL REFERENCES equipment(equipment_id),
+    production_log_id   BIGINT REFERENCES production_log(log_id), -- 어떤 생산실적 건에서 발생한 불량인지 (nullable: 생산실적과 무관한 이벤트도 있을 수 있음)
+    ts                  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    defect_type         VARCHAR(50) NOT NULL,
+    severity            VARCHAR(10) NOT NULL DEFAULT 'low', -- low / medium / high
+    note                TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_quality_event_equipment_ts
     ON quality_event (equipment_id, ts DESC);
+
+CREATE INDEX IF NOT EXISTS idx_quality_event_production_log_id
+    ON quality_event (production_log_id);
 
 -- 5주차(이상탐지)에서 사용할 결과 테이블 - 미리 만들어둠
 CREATE TABLE IF NOT EXISTS anomaly_result (

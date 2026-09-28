@@ -21,6 +21,7 @@ class ProductionLogOut(ProductionLogIn):
 
 class QualityEventIn(BaseModel):
     equipment_id: str
+    production_log_id: Optional[int] = None  # 이 불량이 발생한 생산실적 건 (선택)
     defect_type: str
     severity: str = "low"
     note: Optional[str] = None
@@ -40,6 +41,14 @@ class EquipmentStatus(BaseModel):
     name: str
     line_id: str
     status: str
+
+
+class DefectSummary(BaseModel):
+    """설비별·불량유형별 불량 집계 응답"""
+    equipment_id: str
+    defect_type: str
+    event_count: int        # 해당 설비/불량유형의 품질 이벤트 건수
+    total_qty_defect: int   # production_log에 연결된 이벤트들의 불량 수량 합
 
 
 class OeeResponse(BaseModel):

@@ -11,6 +11,7 @@ from database import get_db, engine, Base
 import models
 import schemas
 from oee import calculate_oee
+from quality import calculate_defect_summary
 
 # 로컬 개발 편의를 위해 앱 시작 시 테이블 자동 생성
 # (운영에서는 schema.sql / 마이그레이션 도구를 통해 관리)
@@ -62,11 +63,39 @@ def create_quality_event(payload: schemas.QualityEventIn, db: Session = Depends(
     if not eq:
         raise HTTPException(status_code=404, detail="unknown equipment_id")
 
+    if payload.production_log_id is not None:
+        log = db.query(models.ProductionLog).filter_by(log_id=payload.production_log_id).first()
+        if not log:
+            raise HTTPException(status_code=404, detail="unknown production_log_id")
+        if log.equipment_id != payload.equipment_id:
+            raise HTTPException(
+                status_code=400,
+                detail="production_log_id belongs to a different equipment_id",
+            )
+
     event = models.QualityEvent(**payload.model_dump())
     db.add(event)
     db.commit()
     db.refresh(event)
     return event
+
+
+@app.get("/quality/defect-summary", response_model=List[schemas.DefectSummary])
+def get_defect_summary(
+    equipment_ids: Optional[List[str]] = Query(
+        None, description="비워두면 등록된 모든 설비를 대상으로 함"
+    ),
+    hours: int = 24,
+    db: Session = Depends(get_db),
+):
+    """설비별·불량유형별 불량 집계.
+
+    quality_event.production_log_id로 production_log와 연결하여,
+    불량유형(defect_type)별 이벤트 건수와 실제 불량 수량(qty_defect) 합을 함께 보여준다.
+    """
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(hours=hours)
+    return calculate_defect_summary(db, equipment_ids, start, end)
 
 
 # ---------- 집계 (가동률/생산실적 조회) ----------

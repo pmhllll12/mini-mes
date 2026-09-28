@@ -31,6 +31,7 @@ class QualityEvent(Base):
 
     event_id = Column(BigInteger, primary_key=True, autoincrement=True)
     equipment_id = Column(String(20), ForeignKey("equipment.equipment_id"), nullable=False)
+    production_log_id = Column(BigInteger, ForeignKey("production_log.log_id"), nullable=True)
     ts = Column(TIMESTAMP(timezone=True), server_default=text("now()"))
     defect_type = Column(String(50), nullable=False)
     severity = Column(String(10), default="low")

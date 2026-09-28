@@ -25,4 +25,4 @@ FastAPI + SQLAlchemy + PostgreSQL, Docker Compose (이후 K3s/Helm, Terraform, G
 → 5주 이상탐지(Isolation Forest) → 6주 자연어 질의 → 7주 Terraform/CI-CD/문서화
 
 ## 알려진 이슈
-- production_log.qty_defect 와 quality_event 가 서로 연결되어 있지 않음 (2주차에 정리)
+- (해결됨, 2주차) production_log.qty_defect 와 quality_event 가 서로 연결되어 있지 않던 문제 → quality_event.production_log_id(nullable FK) 추가, `/quality/defect-summary` API로 설비별·불량유형별 집계 제공
