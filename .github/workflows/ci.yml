@@ -48,11 +48,37 @@ jobs:
         run: pytest -v
         working-directory: api
 
+  anomaly-worker-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r anomaly-worker/requirements-dev.txt
+
+      - name: Lint (ruff)
+        run: ruff check anomaly-worker evaluate
+
+      - name: Unit tests (feature extraction, scoring, model cache)
+        run: pytest -v
+        working-directory: anomaly-worker
+
+      - name: Unit tests (evaluation metrics)
+        run: pytest -v
+        working-directory: evaluate
+
   docker-build:
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, anomaly-worker-test]
     steps:
       - uses: actions/checkout@v4
 
       - name: Build API image
         run: docker build -t mini-mes-api:ci ./api
+
+      - name: Build anomaly-worker image
+        run: docker build -t mini-mes-anomaly-worker:ci ./anomaly-worker

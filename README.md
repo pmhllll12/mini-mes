@@ -3,8 +3,8 @@
 제조 설비의 생산실적·가동률(OEE)·품질 이력을 수집하고 집계하는 미니 MES(Manufacturing Execution System) 개인 프로젝트입니다.
 Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단계적으로 고도화하며 만들고 있습니다.
 
-> **현재 상태:** 4주차 완료 (핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링, GitHub Actions CI, Helm 차트 + k3d 로컬 검증).
-> Terraform, 이상탐지, 자연어 질의는 아직 구현 전이며, K3s 서버 배포 대상도 아직 정하지 않았습니다.
+> **현재 상태:** 5주차 완료 (핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링, GitHub Actions CI, Helm 차트 + k3d 로컬 검증, 이상탐지 워커 + 가상 데이터 기준 성능 평가).
+> Terraform, 자연어 질의는 아직 구현 전이며, K3s 서버 배포 대상도 아직 정하지 않았습니다.
 
 ## 배경
 
@@ -213,7 +213,11 @@ docker compose run --rm -v "$PWD/evaluate:/eval" -v "$PWD/simulator:/sim:ro" \
 
 ## 테스트 / CI
 
-`push`, `pull_request` 시 GitHub Actions(`.github/workflows/ci.yml`)가 의존성 설치 → 코드 문법 검사(ruff) → API 테스트(pytest) → API Docker 이미지 빌드 순으로 실행됩니다. 테스트는 Postgres 서비스 컨테이너에 `db/schema.sql`을 적용한 뒤 그 위에서 동작합니다.
+`push`, `pull_request` 시 GitHub Actions(`.github/workflows/ci.yml`)가 다음 작업을 실행합니다.
+
+- `test`: 의존성 설치 → 코드 문법 검사(ruff) → API 테스트(pytest). 테스트는 Postgres 서비스 컨테이너에 `db/schema.sql`을 적용한 뒤 그 위에서 동작합니다.
+- `anomaly-worker-test`: ruff(`anomaly-worker`, `evaluate`) → 워커 단위 테스트(특징 추출, 점수·threshold 계산, 모델 저장/로드, 모델 없음 처리) → 평가 지표(precision/recall/F1) 단위 테스트. DB 없이 실행됩니다.
+- `docker-build`: 위 두 작업이 통과하면 API 이미지와 anomaly-worker 이미지를 빌드합니다.
 
 로컬에서 테스트를 돌리려면 Postgres가 필요합니다 (예: `docker compose up -d db`로 이미 띄워둔 DB를 사용해도 됩니다).
 
@@ -222,6 +226,15 @@ cd api
 pip install -r requirements.txt -r requirements-dev.txt
 ruff check .
 pytest -v
+```
+
+워커·평가 단위 테스트는 DB 없이 실행됩니다 (Python 3.12 기준, scikit-learn 버전 고정).
+
+```bash
+pip install -r anomaly-worker/requirements-dev.txt
+ruff check anomaly-worker evaluate
+(cd anomaly-worker && pytest -v)
+(cd evaluate && pytest -v)
 ```
 
 `oee.py`의 가동률 계산은 `run_time`이 `planned_time`을 넘어도 1.0을 넘지 않도록 상한을 두는데, `api/tests/test_oee_unit.py`에서 이 상한이 실제로 지켜지는지 단위 테스트로 검증합니다.
@@ -264,8 +277,8 @@ minikube를 쓴다면 2)의 `k3d image import` 대신 `minikube image load mini-
 
 ## 기술 스택
 
-- 현재: Python, FastAPI, SQLAlchemy, PostgreSQL 16, Docker Compose, Prometheus, Grafana, GitHub Actions, Helm/k3d(로컬 검증)
-- 예정: Terraform, K3s 서버 배포, scikit-learn(Isolation Forest), Gemini(function calling)
+- 현재: Python, FastAPI, SQLAlchemy, PostgreSQL 16, Docker Compose, Prometheus, Grafana, GitHub Actions, Helm/k3d(로컬 검증), scikit-learn(Isolation Forest)
+- 예정: Terraform, K3s 서버 배포, Gemini(function calling)
 
 ## 로드맵
 
@@ -275,7 +288,7 @@ minikube를 쓴다면 2)의 `k3d image import` 대신 `minikube image load mini-
 | 2주 | `quality_event`에 `production_log_id`(nullable FK) 추가, 설비별·불량유형별 불량 집계 API(`/quality/defect-summary`), 시뮬레이터가 불량 발생 시 연결된 품질 이벤트도 함께 전송, 설비 status 자동 갱신 | ✅ |
 | 3주 | Prometheus + Grafana 모니터링 스택 추가 (`/metrics`, 대시보드 프로비저닝) | ✅ |
 | 4주 | Helm 차트 작성 + k3d 로컬 검증 (Secret/PVC/probe, 서버 배포 대상은 미정) | ✅ |
-| 5주 | 이상탐지(예지보전) 워커 추가 | |
+| 5주 | 이상탐지(예지보전) 워커 추가: 설비별 Isolation Forest(정상 데이터만 학습, 모델은 볼륨 저장), `/anomalies` 조회 API, 워커 메트릭·Grafana "이상 점수 추이" 패널, 시뮬레이터 라벨 기반 성능 평가(가상 데이터 기준 전체 F1 0.602), 워커 단위 테스트·이미지 빌드 CI | ✅ |
 | 6주 | 자연어 질의 API 추가 | |
 | 7주 | Terraform, 문서화·데모 영상 (GitHub Actions CI는 완료) | |
 
@@ -283,6 +296,14 @@ minikube를 쓴다면 2)의 `k3d image import` 대신 `minikube image load mini-
 
 - 데이터는 시뮬레이터가 만든 가상 데이터이며 실제 설비 데이터가 아닙니다.
 - `db/schema.sql`은 DB 최초 생성 시 한 번만 적용됩니다. 스키마를 바꾸면 `docker compose down -v` 후 다시 띄워야 합니다.
+- 이상탐지 관련
+  - 성능 평가는 시뮬레이터가 만든 가상 데이터 기준이며 실제 설비 성능이 아닙니다. 시뮬레이터의 이상 패턴(사이클타임 2~3.5배 + 불량률 20~40%)은 실제 고장 양상보다 단순합니다.
+  - 특징이 단순합니다 (생산실적 1건 단위의 사이클타임·생산 수량·불량률 3개). 시간 흐름(추세, 이동평균)이나 센서 데이터(진동·온도 등)는 쓰지 않습니다. 구간당 생산량이 적은 설비(EQ-001, 약 4~5개)는 불량률이 0%와 25% 사이를 오가서 불량률 특징의 변별력이 낮습니다.
+  - Isolation Forest는 학습 범위를 벗어난 정도에 따라 점수가 커지지 않아(점수 포화) recall이 낮습니다 (전체 0.453, 위 "성능 평가" 참고).
+  - 설비별 모델이라 새 설비를 추가하면 그 설비의 정상 데이터를 모아 재학습해야 하며, 그 전까지 해당 설비는 `모델 없음` 상태로 판정되지 않습니다. 공정 조건이 바뀌어 정상 범위가 달라져도 재학습이 필요합니다(자동 재학습 없음).
+  - 학습 데이터가 정상인지는 사람이 학습 구간(`--since`/`--until`)을 지정해서 보장합니다. 실제 현장에서는 "정상만 있는 구간"을 확보하기 어렵습니다.
+  - `anomaly_result`에 생산실적 ID가 없어 `(equipment_id, ts)`로 같은 로그인지 판단합니다. 같은 설비에 같은 ts의 로그가 두 건 이상 들어오면 한 건만 판정됩니다.
+  - Helm 차트에는 아직 anomaly-worker가 없습니다 (Docker Compose에서만 동작).
 
 ## 개발 기간
 
