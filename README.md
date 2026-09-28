@@ -139,6 +139,8 @@ cd ..
 
 # 3) 그 구간만으로 설비별 모델 학습 (결과는 anomaly_models 볼륨에 저장)
 docker compose run --rm anomaly-worker python train.py --since "$TRAIN_SINCE"
+#    열화 경보용 모델 (이동 구간 특징, 선택) - 없으면 급변 판정만 동작
+docker compose run --rm anomaly-worker python train.py --since "$TRAIN_SINCE" --rolling-window 5 --model-dir /models/drift
 
 # 4) 워커 로그 확인 (모델 로드 → 이후 들어오는 생산실적 판정)
 docker compose logs -f anomaly-worker
@@ -235,7 +237,7 @@ docker compose run --rm -v "$PWD/evaluate:/eval" -v "$PWD/simulator:/sim:ro" \
 
 - **장점:** 점진적 열화를 더 일찍 잡습니다 (진행도 50~75% 구간 recall 0.44 → 0.95). 진행도 25% 미만은 두 모델 모두 거의 못 잡습니다(정상 변동 범위 안).
 - **대가:** 이동 구간 특징이 이상 직후 구간으로 번져 오탐이 늘어납니다. 급변 실행분에서 C의 오탐 94건 중 86건이 급변 이상 직후 4구간 이내였고(v2는 18건 중 11건), 열화 실행분에서도 C의 오탐 66건 중 50건이 열화가 끝난 직후 4구간 이내였습니다. 라벨이 구간 단위라 "이상 직후의 늦은 경보"도 오탐으로 계산됩니다.
-- **결정:** 워커 기본 모델은 v2(이동 구간 특징 없음)로 유지합니다. C안은 점진적 열화 감시가 중요할 때 `--rolling-window`로 켤 수 있는 옵션입니다. 급변 감시(v2)와 열화 감시(C)를 별도 경보로 나누는 구성은 다음 단계 후보입니다.
+- **결정:** 급변 판정(DB 기록)은 v2로 유지하고, C안은 별도의 열화 경보로 분리했습니다 (아래 "급변 경보와 열화 경보").
 
 ```bash
 # C안 모델을 별도 디렉터리에 학습하고 같은 평가 데이터로 비교 (DB 기록 없음)
@@ -245,6 +247,31 @@ docker compose run --rm anomaly-worker python train.py --since "$TRAIN_SINCE" --
 docker compose run --rm -v "$PWD/evaluate:/eval" -v "$PWD/simulator:/sim:ro" \
     anomaly-worker python /eval/evaluate.py --labels /sim/labels.jsonl --score-with /models/c5
 ```
+
+### 급변 경보와 열화 경보
+
+워커는 같은 생산실적을 두 탐지기로 판정해 경보를 두 갈래로 나눕니다.
+
+| | 급변 경보 | 열화 경보 |
+|---|---|---|
+| 모델 | `/models` (v2, 구간 1건 특징) | `/models/drift` (v2 + 이동 구간 특징 K=5, C안) |
+| 잡는 것 | 한 구간에서 크게 튀는 이상 | 여러 구간에 걸쳐 서서히 나빠지는 열화 |
+| 결과 | `anomaly_result` 기록 → `/anomalies` | DB에 쓰지 않음 → `mes_drift_*` 메트릭, 로그 `열화 경보 시작/해제` |
+| Grafana | "이상 점수 추이", "이상 탐지 횟수" | "열화 점수 추이", "열화 경보 상태" |
+
+- `anomaly_result`에 탐지기 구분 컬럼이 없어(스키마 유지) 열화 판정은 DB에 남기지 않습니다. 열화 경보 이력은 Prometheus 보관 기간(기본 15일) 동안 메트릭으로만 남고 API로는 조회할 수 없습니다.
+- 급변 탐지기가 이상으로 판정한 생산실적은 열화 판정에서 제외합니다 (급변 1건이 열화 경보까지 중복으로 울리지 않게).
+- 열화 모델(`/models/drift`)이 없으면 열화 감시만 건너뛰고 급변 판정은 그대로 동작합니다.
+
+**확인 결과** (새 실행분: `--interval 1 --anomaly-rate 0.05 --drift-rate 0.03 --max-ticks 150`, 3설비 450건, 급변 39건·열화 134건)
+
+| | 열화 경보 시작 | 급변 때문 | 열화 중 | 급변 직후 4구간 | 그 외 정상 | 열화 에피소드 감지 | 첫 경보(중앙값) |
+|---|---|---|---|---|---|---|---|
+| 급변 제외 규칙 없음 | 45 | 28 | 12 | 2 | 3 | 7/8 | 4번째 구간 |
+| 급변 제외 규칙 (적용) | 30 | 0 | 18 | 6 | 6 | 7/8 | 6번째 구간 |
+
+- 이 규칙은 앞선 시연 실행분(경보 30건 중 18건이 급변 때문)을 보고 넣었고, 효과는 그 뒤 새로 만든 위 실행분으로 확인했습니다. 워커 로그의 경보 시작 수(30)와 오프라인 분석이 일치합니다.
+- 남은 문제: 열화 에피소드 1개 안에서 threshold 근처를 오가며 경보가 여러 번 켜졌다 꺼집니다(열화 중 경보 18번 / 감지한 에피소드 7개). 급변 직후 이동 구간이 아직 높아서 울리는 경보도 있습니다. "N구간 연속일 때 경보" 같은 히스테리시스는 N 선택이 곧 튜닝이라 넣지 않았습니다 (다음 후보).
 
 ## 아키텍처
 
@@ -270,9 +297,10 @@ docker compose run --rm -v "$PWD/evaluate:/eval" -v "$PWD/simulator:/sim:ro" \
   - `mes_anomaly_score` — 설비별, 직전 판정 주기에 판정한 생산실적 중 최대 이상 점수
   - `mes_anomaly_threshold`, `mes_anomaly_model_loaded` — 설비별 모델 threshold, 모델 로드 여부(1/0)
   - `mes_anomaly_scored_total`, `mes_anomaly_detected_total` — 판정 건수, 이상 판정 건수 (Counter라 워커 재시작 시 0부터 다시 셈. 누적 건수는 `/anomalies` API 기준)
+  - 열화 경보: `mes_drift_score`(최근 열화 점수), `mes_drift_threshold`, `mes_drift_model_loaded`, `mes_drift_alarm`(1=경보 중), `mes_drift_detected_total`, `mes_drift_alarm_raised_total`(정상→경보 전환 횟수)
 - Prometheus: http://localhost:9090 (설정: `monitoring/prometheus/prometheus.yml`, 10초 간격으로 API `/metrics` 스크레이프)
 - Grafana: http://localhost:3000 (admin/admin, 로컬 전용 기본 계정) — "mini-mes 개요" 대시보드가 자동으로 로드됨
-  - 이상탐지 패널: "이상 점수 추이"(설비별 점수 + 점선 threshold), "이상 탐지 횟수 (최근 1시간)"
+  - 이상탐지 패널: "이상 점수 추이"(설비별 점수 + 점선 threshold), "이상 탐지 횟수 (최근 1시간)", "열화 점수 추이", "열화 경보 상태"(경보 여부 + 최근 1시간 경보 횟수)
   - 프로비저닝 파일: `monitoring/grafana/provisioning/`(datasource·dashboard 등록), `monitoring/grafana/dashboards/mini-mes.json`(대시보드 정의)
 
 ## 테스트 / CI
@@ -340,6 +368,7 @@ curl http://localhost:8001/health
 TRAIN_SINCE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 (cd simulator && python3 simulate.py --api-url http://localhost:8001 --interval 0 --anomaly-rate 0 --max-ticks 300)
 kubectl exec deploy/mini-mes-anomaly-worker -- python train.py --since "$TRAIN_SINCE"
+kubectl exec deploy/mini-mes-anomaly-worker -- python train.py --since "$TRAIN_SINCE" --rolling-window 5 --model-dir /models/drift   # 열화 경보용 (선택)
 kubectl logs deploy/mini-mes-anomaly-worker -f   # 모델 로드 → 판정 로그 확인
 
 # 6) 정리
@@ -379,6 +408,7 @@ minikube를 쓴다면 2)의 `k3d image import` 대신 `minikube image load mini-
   - 특징이 단순합니다 (기본은 생산실적 1건 단위의 사이클타임·생산 수량·불량률 3개, 옵션으로 이동 구간 특징 2개). 센서 데이터(진동·온도 등)는 쓰지 않습니다. 구간당 생산량이 적은 설비(EQ-001, 약 4~5개)는 불량률이 0%와 25% 사이를 오가서 불량률 특징의 변별력이 낮습니다.
   - Isolation Forest 단독(v1)은 학습 범위 밖에서 점수가 포화돼 recall이 낮았고(0.453), v2에서 robust z-score를 결합해 개선했습니다(1.000). 다만 시뮬레이터의 이상이 정상에서 매우 멀리 떨어진 쉬운 이상이라 나온 수치이며, 평가 데이터 기준 오탐률은 약 2.1%입니다.
   - 점진적 열화(시뮬레이터 `--drift-rate`)에는 v2의 recall이 0.407로 낮습니다. 이동 구간 특징(C안)을 켜면 0.612로 오르지만 이상 직후 구간 오탐이 늘어 급변 이상 F1은 0.970 → 0.861로 떨어집니다. 열화 초반(진행도 25% 미만)은 두 방식 모두 거의 잡지 못합니다.
+  - 그래서 급변(DB 기록)과 열화(메트릭·로그)를 별도 경보로 나눴습니다. 열화 경보는 에피소드 안에서 켜졌다 꺼지기를 반복하고(히스테리시스 없음), 급변 직후에도 울릴 수 있으며, 이력이 DB에 남지 않습니다(스키마 유지).
   - 설비별 모델이라 새 설비를 추가하면 그 설비의 정상 데이터를 모아 재학습해야 하며, 그 전까지 해당 설비는 `모델 없음` 상태로 판정되지 않습니다. 공정 조건이 바뀌어 정상 범위가 달라져도 재학습이 필요합니다(자동 재학습 없음).
   - 학습 데이터가 정상인지는 사람이 학습 구간(`--since`/`--until`)을 지정해서 보장합니다. 실제 현장에서는 "정상만 있는 구간"을 확보하기 어렵습니다.
   - `anomaly_result`에 생산실적 ID가 없어 `(equipment_id, ts)`로 같은 로그인지 판단합니다. 같은 설비에 같은 ts의 로그가 두 건 이상 들어오면 한 건만 판정됩니다.
