@@ -8,9 +8,11 @@ FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana (이후 
 
 ## 구조
 - api/ : FastAPI 앱 (main.py, models.py, schemas.py, oee.py, quality.py, metrics.py, database.py)
+- api/tests/ : pytest 테스트 (Postgres 필요, db/schema.sql 적용된 DB 대상)
 - db/schema.sql : 테이블 정의 + 설비 시드 3개
 - simulator/simulate.py : 가상 설비 데이터 전송기
 - monitoring/ : Prometheus 스크레이프 설정, Grafana 데이터소스·대시보드 프로비저닝
+- .github/workflows/ci.yml : push/PR 시 lint(ruff)·테스트(pytest)·Docker 빌드
 
 ## 로컬 실행 주의
 - API 포트는 호스트 8001 (8000은 WSL의 다른 프로세스가 사용 중)

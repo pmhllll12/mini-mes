@@ -3,3 +3,5 @@ __pycache__/
 .env
 *.pem
 report.csv
+.pytest_cache/
+.ruff_cache/

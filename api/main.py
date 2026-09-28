@@ -15,11 +15,14 @@ import models
 import schemas
 from oee import calculate_oee
 from quality import calculate_defect_summary
-from metrics import HTTP_REQUEST_COUNT, HTTP_REQUEST_LATENCY
 
 # 로컬 개발 편의를 위해 앱 시작 시 테이블 자동 생성
 # (운영에서는 schema.sql / 마이그레이션 도구를 통해 관리)
 Base.metadata.create_all(bind=engine)
+
+# metrics 모듈은 import 시점(REGISTRY.register)에 곧바로 DB를 조회하므로,
+# 테이블이 만들어지는 create_all 이후에 import해야 한다.
+from metrics import HTTP_REQUEST_COUNT, HTTP_REQUEST_LATENCY  # noqa: E402
 
 app = FastAPI(title="mini-mes", version="0.1.0")
 

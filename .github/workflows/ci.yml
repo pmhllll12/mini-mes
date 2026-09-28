@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: mini_mes
+          POSTGRES_USER: mes_user
+          POSTGRES_PASSWORD: mes_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mes_user -d mini_mes"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://mes_user:mes_password@localhost:5432/mini_mes
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r api/requirements.txt -r api/requirements-dev.txt
+
+      - name: Load DB schema
+        run: PGPASSWORD=mes_password psql -h localhost -U mes_user -d mini_mes -f db/schema.sql
+
+      - name: Lint (ruff)
+        run: ruff check .
+        working-directory: api
+
+      - name: Run tests
+        run: pytest -v
+        working-directory: api
+
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build API image
+        run: docker build -t mini-mes-api:ci ./api

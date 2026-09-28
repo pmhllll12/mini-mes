@@ -122,6 +122,21 @@ curl "http://localhost:8001/export/production-logs?start=2020-01-01T00:00:00Z" -
 - Grafana: http://localhost:3000 (admin/admin, 로컬 전용 기본 계정) — "mini-mes 개요" 대시보드가 자동으로 로드됨
   - 프로비저닝 파일: `monitoring/grafana/provisioning/`(datasource·dashboard 등록), `monitoring/grafana/dashboards/mini-mes.json`(대시보드 정의)
 
+## 테스트 / CI
+
+`push`, `pull_request` 시 GitHub Actions(`.github/workflows/ci.yml`)가 의존성 설치 → 코드 문법 검사(ruff) → API 테스트(pytest) → API Docker 이미지 빌드 순으로 실행됩니다. 테스트는 Postgres 서비스 컨테이너에 `db/schema.sql`을 적용한 뒤 그 위에서 동작합니다.
+
+로컬에서 테스트를 돌리려면 Postgres가 필요합니다 (예: `docker compose up -d db`로 이미 띄워둔 DB를 사용해도 됩니다).
+
+```bash
+cd api
+pip install -r requirements.txt -r requirements-dev.txt
+ruff check .
+pytest -v
+```
+
+`oee.py`의 가동률 계산은 `run_time`이 `planned_time`을 넘어도 1.0을 넘지 않도록 상한을 두는데, `api/tests/test_oee_unit.py`에서 이 상한이 실제로 지켜지는지 단위 테스트로 검증합니다.
+
 ## 기술 스택
 
 - 현재: Python, FastAPI, SQLAlchemy, PostgreSQL 16, Docker Compose, Prometheus, Grafana
@@ -137,7 +152,7 @@ curl "http://localhost:8001/export/production-logs?start=2020-01-01T00:00:00Z" -
 | 4주 | K3s/Helm 배포 전환 | |
 | 5주 | 이상탐지(예지보전) 워커 추가 | |
 | 6주 | 자연어 질의 API 추가 | |
-| 7주 | Terraform, CI/CD, 문서화·데모 영상 | |
+| 7주 | Terraform, 문서화·데모 영상 (GitHub Actions CI는 완료) | |
 
 ## 알려진 한계
 
