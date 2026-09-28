@@ -133,7 +133,10 @@ class GeminiProvider:
         from google.genai import types
         if client is None:
             from google import genai
-            client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=int(timeout * 1000)))
+            # Claude SDK 기본값(재시도 2회)과 맞춰 408/429/5xx는 최대 3번 시도 (Gemini 일시 과부하 503 대응)
+            client = genai.Client(api_key=api_key, http_options=types.HttpOptions(
+                timeout=int(timeout * 1000), retry_options=types.HttpRetryOptions(attempts=3),
+            ))
         self.client = client
         self.model = model
         self.types = types
@@ -180,7 +183,9 @@ class GeminiProvider:
                     parts.append(types.Part.from_function_response(
                         name=fc.name, response={"result": payload} if ok else {"error": payload},
                     ))
-                contents.append(types.Content(role="tool", parts=parts))
+                # SDK README 예제는 role="tool"이지만 Gemini Developer API는 400(Role 'tool' is not supported)을
+                # 돌려준다 - 실제 API가 허용하는 "user"로 함수 결과를 보낸다 (2026-09-28 gemini-flash-latest로 확인)
+                contents.append(types.Content(role="user", parts=parts))
                 continue
             candidate = resp.candidates[0] if resp.candidates else None
             finish = str(getattr(candidate, "finish_reason", "") or "")

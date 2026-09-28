@@ -185,7 +185,7 @@ def _gemini_resp(function_calls=None, text=None, finish="STOP"):
                            candidates=[SimpleNamespace(content=content, finish_reason=finish)])
 
 
-def test_gemini_loop_sends_function_responses_as_tool_role():
+def test_gemini_loop_sends_function_responses_as_user_role():
     fake = FakeGemini([
         _gemini_resp(function_calls=[SimpleNamespace(name="get_anomalies", args={"equipment_ids": ["EQ-001"], **RANGE})]),
         _gemini_resp(text="이상 3건입니다."),
@@ -196,7 +196,8 @@ def test_gemini_loop_sends_function_responses_as_tool_role():
     assert result.answer == "이상 3건입니다." and result.stop == "answer"
     assert result.tool_calls[0]["input"]["equipment_ids"] == ["EQ-001"]
     followup = fake.calls[1]["contents"]
-    assert followup[-1].role == "tool"
+    assert followup[-1].role == "user"  # role="tool"은 실제 API가 400으로 거부
+    assert followup[-1].parts[0].function_response.name == "get_anomalies"
     assert followup[-1].parts[0].function_response.response == {"result": {"anomaly_count": 3}}
     assert fake.calls[0]["config"].automatic_function_calling.disable is True
 

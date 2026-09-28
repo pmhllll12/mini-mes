@@ -96,12 +96,15 @@ def main():
     parser.add_argument("--providers", nargs="+", default=["claude", "gemini"])
     parser.add_argument("--questions", default=os.path.join(os.path.dirname(__file__), "nlq_questions.json"))
     parser.add_argument("--out", default=None, help="질문별 응답·채점 결과를 JSON으로 저장할 경로")
+    parser.add_argument("--delay", type=float, default=0, help="질문 사이 대기(초) - 무료 등급의 분당 요청 한도 대응")
     args = parser.parse_args()
 
     items = json.load(open(args.questions, encoding="utf-8"))
     report = []
     for provider in args.providers:
-        for item in items:
+        for i, item in enumerate(items):
+            if i and args.delay:
+                time.sleep(args.delay)
             now = datetime.now(KST)
             t0 = time.time()
             res = requests.post(f"{args.api_url}/query", timeout=300,
