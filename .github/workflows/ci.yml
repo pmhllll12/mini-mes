@@ -91,6 +91,7 @@ jobs:
           helm lint charts/mini-mes
           helm template mini-mes charts/mini-mes > /dev/null
           helm template mini-mes charts/mini-mes --set monitoring.enabled=false --set anomalyWorker.enabled=false > /dev/null
+          helm template mini-mes charts/mini-mes --set monitoring.prometheus.persistence.enabled=false > /dev/null
 
   docker-build:
     runs-on: ubuntu-24.04

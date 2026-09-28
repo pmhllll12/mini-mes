@@ -45,4 +45,4 @@ FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana, GitHub 
 - (해결됨, 5주차) Isolation Forest 점수가 학습 범위 밖에서 포화되어 recall이 낮던 문제(v1: P 0.896 / R 0.453 / F1 0.602) → robust z-score 결합(v2: 새 평가 실행분 기준 P 0.920 / R 1.000 / F1 0.959). 시뮬레이터 이상이 쉬운 이상이라 나온 수치.
 - (5주차, 옵션으로 유지) C안 이동 구간 특징(K=5): 점진적 열화 recall 0.407 → 0.612, 대신 이상 직후 오탐 증가로 급변 F1 0.970 → 0.861. 워커 기본은 v2.
 - (5주차) 급변·열화 경보 분리: 급변=/models(v2)→anomaly_result, 열화=/models/drift(C, K=5)→mes_drift_* 메트릭·로그만(스키마에 탐지기 구분 없음). 급변 판정 건은 열화 경보 판단 보류(None). 히스테리시스 2구간 연속 시작/3구간 연속 해제(DRIFT_RAISE_AFTER/DRIFT_CLEAR_AFTER). 검증 실행분 기준 경보 76→25, 에피소드당 1.00, 도중 해제 0. 남은 문제: 열화 종료 후 약 5구간 경보 지속, 열화 초반 미감지, 열화 이력 DB 미보관
-- Helm 차트(워커·Prometheus·Grafana 포함)는 k3d 로컬 검증까지만. 차트 Prometheus 저장소는 emptyDir(재시작 시 메트릭·열화 경보 이력 소실). k3d 검증 시 port-forward는 18001(api)/19090(prometheus)/13000(grafana) 사용 (compose와 충돌 방지)
+- Helm 차트(워커·Prometheus·Grafana 포함)는 k3d 로컬 검증까지만. 차트 Prometheus 저장소는 PVC(monitoring.prometheus.persistence, 기본 켬, Recreate, fsGroup 65534)라 파드 재생성 후에도 이력 유지. k3d 검증 시 port-forward는 18001(api)/19090(prometheus)/13000(grafana) 사용 (compose와 충돌 방지)

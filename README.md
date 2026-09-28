@@ -252,7 +252,7 @@ ruff check anomaly-worker evaluate
   - 판정 중복을 막기 위해 replicas 1, PVC가 ReadWriteOnce라 `Recreate` 전략
   - 워커는 DB 연결 실패·모델 없음에도 죽지 않으므로 probe는 메트릭 포트(9100) TCP 확인. `<release>-anomaly-worker` Service로 `/metrics` 노출
 - 모니터링(`templates/prometheus.yaml`, `templates/grafana.yaml`, `values.yaml`의 `monitoring.enabled`로 켜고 끔)
-  - Prometheus가 api·워커 Service를 스크레이프 (워커를 끄면 대상에서도 빠짐). 저장소는 emptyDir라 파드를 지우면 메트릭 이력이 사라집니다(로컬 검증용).
+  - Prometheus가 api·워커 Service를 스크레이프 (워커를 끄면 대상에서도 빠짐). 저장소는 PVC(`<release>-prometheus-data`, 기본 1Gi, `Recreate` 전략)라 파드를 다시 만들어도 메트릭·열화 경보 이력이 유지됩니다. `monitoring.prometheus.persistence.enabled=false`면 emptyDir(파드 삭제 시 이력 소실).
   - Grafana는 docker compose와 같은 datasource(uid `mini-mes-prometheus`)·대시보드를 프로비저닝. 관리자 계정은 Secret(`<release>-grafana`)이며 기본값 admin/admin은 로컬 검증용입니다 (`--set monitoring.grafana.adminPassword=...`).
   - 설정·대시보드가 바뀌면 checksum 어노테이션으로 파드가 재시작됩니다.
 - `charts/mini-mes/files/schema.sql`, `files/grafana-dashboard.json`은 각각 `db/schema.sql`, `monitoring/grafana/dashboards/mini-mes.json`의 복사본입니다(Helm이 차트 밖 파일을 직접 읽지 못해 ConfigMap용으로 넣어둠). **원본을 바꾸면 복사본도 함께 수정해야 하며, CI(`chart` 작업)가 두 파일이 다르면 실패시킵니다.**
@@ -300,7 +300,8 @@ minikube를 쓴다면 2)의 `k3d image import` 대신 `minikube image load mini-
 
 - 워커: 설치 직후 `모델 없음` 대기 → `kubectl exec`로 정상 데이터 학습 → 이상 섞인 데이터 판정·기록 → 워커 파드를 지워도 새 파드가 PVC에서 모델을 다시 읽고 이미 판정한 건은 다시 기록하지 않음
 - 모니터링: 파드 5개(db·api·워커·Prometheus·Grafana) Running, 스크레이프 대상 api·워커 모두 up, Grafana에 대시보드(패널 9개) 로드·조회 성공
-- 정적 검증: `helm lint` 통과, 렌더링된 리소스 18개 kubeconform(strict) 통과 (`monitoring.enabled=false`면 10개)
+- Prometheus 영속성(차트 0.3.2): PVC 모드에서 파드를 지우고 새 파드가 떠도 가장 오래된 샘플 시각이 그대로(06:45:12, 새 파드 시작 06:47:02, WAL 재생 정상). 대조로 emptyDir 모드에서는 새 파드 시작 이후 샘플만 남음
+- 정적 검증: `helm lint` 통과, 렌더링된 리소스 19개 kubeconform(strict) 통과 (Prometheus PVC 끄면 18개, `monitoring.enabled=false`면 10개)
 
 ## 기술 스택
 
@@ -329,7 +330,7 @@ minikube를 쓴다면 2)의 `k3d image import` 대신 `minikube image load mini-
   - 설비별 모델이라 새 설비를 추가하거나 공정 조건이 바뀌면 재학습이 필요하고(자동 재학습 없음), 학습 데이터가 정상인지는 사람이 학습 구간을 지정해서 보장합니다.
   - 열화 경보는 DB에 남지 않고(스키마 유지) 메트릭으로만 남으며, 열화가 끝난 뒤에도 몇 구간 더 켜져 있습니다.
   - `anomaly_result`에 생산실적 ID가 없어 `(equipment_id, ts)`로 같은 로그인지 판단합니다.
-- Helm 차트(워커·Prometheus·Grafana 포함)는 k3d 로컬 검증까지만 했고, 차트의 Prometheus 저장소는 emptyDir라 파드가 재시작되면 메트릭 이력이 사라집니다.
+- Helm 차트(워커·Prometheus·Grafana 포함)는 k3d 로컬 검증까지만 했습니다 (k3d 기본 local-path 저장소라 PVC도 노드 한 대의 디스크에 있음).
 
 ## 개발 기간
 

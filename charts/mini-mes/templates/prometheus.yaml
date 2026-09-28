@@ -37,6 +37,10 @@ metadata:
     app.kubernetes.io/component: prometheus
 spec:
   replicas: 1
+  {{- if $prom.persistence.enabled }}
+  strategy:
+    type: Recreate   # PVC가 ReadWriteOnce라 새 파드는 이전 파드가 내려간 뒤에 뜬다
+  {{- end }}
   selector:
     matchLabels:
       {{- include "mini-mes.selectorLabels" . | nindent 6 }}
@@ -49,6 +53,8 @@ spec:
       annotations:
         checksum/config: {{ include "mini-mes.prometheusConfig" . | sha256sum | trunc 16 }}  # 설정이 바뀌면 파드 재시작
     spec:
+      securityContext:
+        fsGroup: 65534   # prom/prometheus 이미지는 nobody(65534)로 실행 - 볼륨에 쓸 수 있게
       containers:
         - name: prometheus
           image: {{ $prom.image }}
@@ -80,7 +86,27 @@ spec:
           configMap:
             name: {{ $fullname }}-prometheus
         - name: data
+          {{- if $prom.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ $fullname }}-prometheus-data
+          {{- else }}
           emptyDir: {}
+          {{- end }}
+{{- if $prom.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $fullname }}-prometheus-data
+  labels:
+    {{- include "mini-mes.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ $prom.persistence.size }}
+{{- end }}
 ---
 apiVersion: v1
 kind: Service

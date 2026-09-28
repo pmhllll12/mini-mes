@@ -145,7 +145,7 @@ docker compose run --rm -v "$PWD/evaluate:/eval" -v "$PWD/simulator:/sim:ro" \
 | Grafana | 이상 점수 추이, 이상 탐지 횟수 | 열화 점수 추이, 열화 경보 상태 |
 
 - 급변 경보 모델은 `/models`, 열화 경보 모델은 `/models/drift`(C안, K=5). 열화 모델이 없으면 열화 감시만 건너뜀
-- 열화 경보 이력은 Prometheus 보관 기간(compose 기본 15일, Helm 차트는 emptyDir라 파드 재시작 시 소실) 동안 메트릭으로만 남고 API로는 조회 불가
+- 열화 경보 이력은 Prometheus 보관 기간(기본 15일, Helm 차트도 PVC에 저장돼 파드를 다시 만들어도 유지) 동안 메트릭으로만 남고 API로는 조회 불가
 - 급변 탐지기가 잡은 생산실적은 열화 경보 판단을 **보류**합니다 (급변 1건의 중복 경보 방지 + 급변 탐지기도 잡을 만큼 진행된 열화 후반에 열화 경보가 꺼지지 않게).
 - 열화 경보는 **2구간 연속** 열화 판정이면 시작, **3구간 연속** 정상이면 해제 (히스테리시스, `DRIFT_RAISE_AFTER`/`DRIFT_CLEAR_AFTER`). 평가 전에 고정 — 시작은 20구간 열화 대비 1구간 지연 허용, 해제는 이동 구간(5)의 절반 넘게 정상일 때
 
@@ -180,4 +180,4 @@ docker compose run --rm -v "$PWD/evaluate:/eval" -v "$PWD/simulator:/sim:ro" \
 - `anomaly_result`에 생산실적 ID가 없어 `(equipment_id, ts)`로 같은 로그인지 판단 — 같은 설비·같은 ts 로그가 두 건 이상이면 한 건만 판정
 - 설비별 모델이라 새 설비를 추가하거나 공정 조건이 바뀌면 재학습 필요 (자동 재학습 없음)
 - 학습 데이터가 정상인지는 사람이 학습 구간을 지정해서 보장함
-- Helm 차트(워커·Prometheus·Grafana 포함)는 k3d 로컬 검증까지만 했고, 차트의 Prometheus 저장소가 emptyDir라 재시작 시 열화 경보 이력이 사라짐
+- Helm 차트(워커·Prometheus·Grafana 포함)는 k3d 로컬 검증까지만 했음
