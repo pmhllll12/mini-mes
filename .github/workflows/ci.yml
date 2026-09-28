@@ -7,7 +7,7 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     services:
       postgres:
@@ -28,9 +28,9 @@ jobs:
       DATABASE_URL: postgresql://mes_user:mes_password@localhost:5432/mini_mes
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -49,11 +49,11 @@ jobs:
         working-directory: api
 
   anomaly-worker-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -72,9 +72,9 @@ jobs:
         working-directory: evaluate
 
   chart:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Helm은 차트 밖 파일을 읽지 못해 복사본을 두므로, 원본과 어긋나면 실패시킨다
       - name: Check chart file copies are in sync
@@ -82,7 +82,7 @@ jobs:
           diff -u db/schema.sql charts/mini-mes/files/schema.sql
           diff -u monitoring/grafana/dashboards/mini-mes.json charts/mini-mes/files/grafana-dashboard.json
 
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
         with:
           version: v3.16.2
 
@@ -93,10 +93,10 @@ jobs:
           helm template mini-mes charts/mini-mes --set monitoring.enabled=false --set anomalyWorker.enabled=false > /dev/null
 
   docker-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [test, anomaly-worker-test, chart]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build API image
         run: docker build -t mini-mes-api:ci ./api
