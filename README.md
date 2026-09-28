@@ -140,6 +140,48 @@ docker compose logs -f anomaly-worker
 
 > **주의:** `docker compose down -v`는 DB 볼륨(`mes_pgdata`)과 함께 **모델 볼륨(`anomaly_models`)도 지웁니다.** 그 뒤에는 워커가 `모델 없음` 상태로 대기하므로, 위 1)~3)을 다시 실행해 재학습해야 합니다.
 
+### 성능 평가
+
+> **이 결과는 시뮬레이터가 만든 가상 데이터 기준이며 실제 설비 성능이 아니다.**
+
+시뮬레이터에 `--labels-file`을 주면 `POST /production-logs` 응답의 `(equipment_id, ts, log_id)`와 이상 여부를 실행 단위(`run_id`)로 `simulator/labels.jsonl`에 기록합니다 (DB에는 저장하지 않으며, 이 파일은 `.gitignore` 대상). `evaluate/evaluate.py`가 이 라벨과 `anomaly_result`를 `(equipment_id, ts)`로 맞춰 설비별·전체 precision/recall/F1을 계산합니다.
+
+학습 데이터와 평가 데이터는 **서로 다른 시뮬레이터 실행분**입니다. 워커는 모델의 학습 구간(`train_end`) 이후 데이터만 판정하고, 평가 스크립트도 두 구간이 겹치는지 검사해 출력합니다.
+
+```bash
+# 1) 학습용 (정상만) - 라벨도 남겨 이상 0건임을 기록
+TRAIN_SINCE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+(cd simulator && python3 simulate.py --api-url http://localhost:8001 --interval 0 --anomaly-rate 0 --max-ticks 300 --labels-file labels.jsonl)
+docker compose run --rm anomaly-worker python train.py --since "$TRAIN_SINCE"
+
+# 2) 평가용 - 별도 실행, 이상 비율 0.2 (워커가 새 모델을 읽을 때까지 10초 이상 기다린 뒤 실행)
+(cd simulator && python3 simulate.py --api-url http://localhost:8001 --interval 0 --anomaly-rate 0.2 --max-ticks 500 --labels-file labels.jsonl)
+
+# 3) 워커 판정이 끝난 뒤(10~20초) 평가 - 라벨 파일의 마지막 실행분을 평가 (--run-id로 지정 가능)
+docker compose run --rm -v "$PWD/evaluate:/eval" -v "$PWD/simulator:/sim:ro" \
+    anomaly-worker python /eval/evaluate.py --labels /sim/labels.jsonl
+```
+
+**평가 조건** (2026-09-28 실행)
+
+| 항목 | 값 |
+|---|---|
+| 학습 데이터 | 설비당 300건 (총 900건), `--anomaly-rate 0` 실행분, 03:36:04~03:36:12 UTC |
+| 평가 데이터 | 설비당 500건 (총 1500건), `--anomaly-rate 0.2` 별도 실행분, 03:36:39~03:36:54 UTC (학습 구간과 겹침 없음) |
+| 평가 데이터 이상 비율 | 21.5% (322 / 1500) |
+| threshold | 학습 데이터 점수의 99% 분위수 — EQ-001 0.6979, EQ-002 0.7100, EQ-003 0.6828 (평가 데이터로 조정하지 않음) |
+
+**결과**
+
+| 설비 | 평가 건수 | 이상 비율 | TP | FP | FN | TN | Precision | Recall | F1 |
+|---|---|---|---|---|---|---|---|---|---|
+| EQ-001 | 500 | 21.6% | 48 | 3 | 60 | 389 | 0.941 | 0.444 | 0.604 |
+| EQ-002 | 500 | 21.2% | 39 | 5 | 67 | 389 | 0.886 | 0.368 | 0.520 |
+| EQ-003 | 500 | 21.6% | 59 | 9 | 49 | 383 | 0.868 | 0.546 | 0.670 |
+| **전체** | 1500 | 21.5% | 146 | 17 | 176 | 1161 | **0.896** | **0.453** | **0.602** |
+
+**Recall이 낮은 원인:** Isolation Forest는 학습 범위 밖의 값을 "얼마나 멀리 벗어났는지"와 관계없이 같은 점수로 매겨서(사이클타임이 1.3배든 3배든 동일), 이상 데이터의 점수가 정상 경계 데이터의 점수(학습 최대 약 0.77)와 구분되지 않고, 불량률까지 벗어난 경우만 threshold를 넘습니다.
+
 ## 아키텍처
 
 ```

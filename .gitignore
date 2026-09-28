@@ -5,3 +5,4 @@ __pycache__/
 report.csv
 .pytest_cache/
 .ruff_cache/
+simulator/labels.jsonl

@@ -10,11 +10,16 @@
 
 사용법:
     python3 simulate.py --api-url http://localhost:8001 --interval 5
+
+--labels-file을 주면 POST /production-logs 응답의 (equipment_id, ts, log_id)와
+이 시뮬레이터가 이상으로 만들었는지(is_anomaly)를 JSONL로 덧붙여 기록한다 (이상탐지 성능 평가용).
+DB에는 이상 여부를 저장하지 않는다.
 """
 import argparse
+import json
 import random
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 import requests
 
@@ -85,9 +90,26 @@ def send_quality_event(api_url: str, equipment_id: str, log_id: int, is_anomaly:
         print(f"[error] {equipment_id} 품질 이벤트 전송 실패: {e}")
 
 
-def run(api_url: str, interval: int, window_sec: int, anomaly_rate: float, max_ticks: int = 0):
+def write_label(labels_file: str, run_id: str, anomaly_rate: float, log: dict, is_anomaly: bool) -> None:
+    record = {
+        "run_id": run_id,
+        "anomaly_rate": anomaly_rate,
+        "equipment_id": log["equipment_id"],
+        "ts": log["ts"],
+        "log_id": log["log_id"],
+        "is_anomaly": is_anomaly,
+    }
+    with open(labels_file, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+
+
+def run(api_url: str, interval: int, window_sec: int, anomaly_rate: float, max_ticks: int = 0,
+        labels_file: str = ""):
     print(f"[simulate] {api_url} 로 {interval}초마다 전송 시작 "
           f"(1회 = {window_sec}초 분량, Ctrl+C로 종료)")
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    if labels_file:
+        print(f"[simulate] 라벨 기록: {labels_file} (run_id={run_id})")
     tick = 0
     while True:
         for eq_id in EQUIPMENT_IDS:
@@ -103,6 +125,9 @@ def run(api_url: str, interval: int, window_sec: int, anomaly_rate: float, max_t
                 print(f"[{datetime.now().isoformat(timespec='seconds')}] "
                       f"{eq_id} ({tag}) good={payload['qty_good']} "
                       f"defect={payload['qty_defect']} -> {res.status_code}")
+
+                if res.status_code == 201 and labels_file:
+                    write_label(labels_file, run_id, anomaly_rate, res.json(), is_anomaly)
 
                 if res.status_code == 201 and payload["qty_defect"] > 0:
                     log_id = res.json()["log_id"]
@@ -123,6 +148,7 @@ if __name__ == "__main__":
     parser.add_argument("--window-sec", type=int, default=60, help="1회 전송이 나타내는 생산 구간(초)")
     parser.add_argument("--anomaly-rate", type=float, default=0.05, help="이상 데이터 발생 확률")
     parser.add_argument("--max-ticks", type=int, default=0, help="지정 횟수 후 종료(0=무한)")
+    parser.add_argument("--labels-file", default="", help="라벨(JSONL) 기록 경로 (예: labels.jsonl, 생략 시 기록 안 함)")
     args = parser.parse_args()
 
-    run(args.api_url, args.interval, args.window_sec, args.anomaly_rate, args.max_ticks)
+    run(args.api_url, args.interval, args.window_sec, args.anomaly_rate, args.max_ticks, args.labels_file)
