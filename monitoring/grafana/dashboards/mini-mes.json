@@ -1,0 +1,119 @@
+{
+  "id": null,
+  "uid": "mini-mes-overview",
+  "title": "mini-mes 개요",
+  "tags": ["mini-mes"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "설비별 OEE (최근 1시간)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "min": 0, "max": 1 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+          "expr": "mes_equipment_oee",
+          "legendFormat": "{{equipment_id}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "설비별 가동률·양품률 (최근 1시간)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "min": 0, "max": 1 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+          "expr": "mes_equipment_availability",
+          "legendFormat": "{{equipment_id}} 가동률",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+          "expr": "mes_equipment_quality_rate",
+          "legendFormat": "{{equipment_id}} 양품률",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "설비별·불량유형별 불량 수량 (최근 24시간)",
+      "type": "bargauge",
+      "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0 },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+          "expr": "mes_defect_qty",
+          "legendFormat": "{{equipment_id}} / {{defect_type}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "API 요청 수 (경로별, 5분 rate)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "min": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+          "expr": "sum(rate(mes_http_requests_total[5m])) by (path)",
+          "legendFormat": "{{path}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "API 지연시간 p95 (경로별)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "min": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+          "expr": "histogram_quantile(0.95, sum(rate(mes_http_request_duration_seconds_bucket[5m])) by (le, path))",
+          "legendFormat": "{{path}}",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

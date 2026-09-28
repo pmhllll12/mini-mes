@@ -3,7 +3,7 @@
 제조 설비의 생산실적·가동률(OEE)·품질 이력을 수집하고 집계하는 미니 MES(Manufacturing Execution System) 개인 프로젝트입니다.
 Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단계적으로 고도화하며 만들고 있습니다.
 
-> **현재 상태:** 2주차 완료 (핵심 API + 설비 시뮬레이터, 불량 이력 연결, Docker Compose로 실행).
+> **현재 상태:** 3주차 완료 (핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링, Docker Compose로 실행).
 > Terraform, CI/CD, 이상탐지, 자연어 질의는 아직 구현 전입니다.
 
 ## 배경
@@ -62,6 +62,7 @@ docker compose up --build -d
 ```
 
 - API 문서(Swagger): http://localhost:8001/docs
+- Prometheus: http://localhost:9090 / Grafana: http://localhost:3000 (admin/admin)
 - 호스트 포트는 `docker-compose.yml`의 `8001:8000`에서 바꿀 수 있습니다.
 
 ### 설비 시뮬레이터
@@ -104,15 +105,27 @@ curl "http://localhost:8001/export/production-logs?start=2020-01-01T00:00:00Z" -
 ```
 [설비 시뮬레이터] → [FastAPI 수집 API] → [PostgreSQL]
                                               ↓
-                                    [FastAPI 조회/집계 API]
+                                    [FastAPI 조회/집계 API] → /metrics → [Prometheus] → [Grafana]
 ```
 
-이후 단계에서 Grafana 대시보드, 이상탐지 워커, 자연어 질의 API를 추가할 예정입니다.
+이후 단계에서 이상탐지 워커, 자연어 질의 API를 추가할 예정입니다.
+
+## 모니터링 (Prometheus + Grafana)
+
+`docker compose up`만으로 Prometheus·Grafana가 함께 뜨고, Grafana 대시보드가 프로비저닝 파일로 자동 구성됩니다.
+
+- API `/metrics` (Prometheus 포맷) 노출 메트릭
+  - `mes_equipment_oee`, `mes_equipment_availability`, `mes_equipment_quality_rate` — 설비별, 스크레이프 시점 기준 최근 1시간 집계
+  - `mes_defect_qty` — 설비별·불량유형별, 스크레이프 시점 기준 최근 24시간 불량 수량
+  - `mes_http_requests_total`, `mes_http_request_duration_seconds` — API 요청 수·지연시간 (경로·메서드·상태코드별)
+- Prometheus: http://localhost:9090 (설정: `monitoring/prometheus/prometheus.yml`, 10초 간격으로 API `/metrics` 스크레이프)
+- Grafana: http://localhost:3000 (admin/admin, 로컬 전용 기본 계정) — "mini-mes 개요" 대시보드가 자동으로 로드됨
+  - 프로비저닝 파일: `monitoring/grafana/provisioning/`(datasource·dashboard 등록), `monitoring/grafana/dashboards/mini-mes.json`(대시보드 정의)
 
 ## 기술 스택
 
-- 현재: Python, FastAPI, SQLAlchemy, PostgreSQL 16, Docker Compose
-- 예정: K3s, Helm, Terraform, GitHub Actions, Prometheus/Grafana, scikit-learn(Isolation Forest), Gemini(function calling)
+- 현재: Python, FastAPI, SQLAlchemy, PostgreSQL 16, Docker Compose, Prometheus, Grafana
+- 예정: K3s, Helm, Terraform, GitHub Actions, scikit-learn(Isolation Forest), Gemini(function calling)
 
 ## 로드맵
 
@@ -120,7 +133,7 @@ curl "http://localhost:8001/export/production-logs?start=2020-01-01T00:00:00Z" -
 |---|---|---|
 | 1주 | 스키마 설계, FastAPI 수집/조회 API, 시뮬레이터, 다중 설비 조회·CSV export | ✅ |
 | 2주 | `quality_event`에 `production_log_id`(nullable FK) 추가, 설비별·불량유형별 불량 집계 API(`/quality/defect-summary`), 시뮬레이터가 불량 발생 시 연결된 품질 이벤트도 함께 전송, 설비 status 자동 갱신 | ✅ |
-| 3주 | Docker Compose 전체 스택 검증 (로컬 실행은 확인 완료) | |
+| 3주 | Prometheus + Grafana 모니터링 스택 추가 (`/metrics`, 대시보드 프로비저닝) | ✅ |
 | 4주 | K3s/Helm 배포 전환 | |
 | 5주 | 이상탐지(예지보전) 워커 추가 | |
 | 6주 | 자연어 질의 API 추가 | |

@@ -4,12 +4,13 @@
 목표: 인프라 설계·자동화 역량을 보여주는 취업용 개인 포트폴리오.
 
 ## 스택
-FastAPI + SQLAlchemy + PostgreSQL, Docker Compose (이후 K3s/Helm, Terraform, GitHub Actions)
+FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana (이후 K3s/Helm, Terraform, GitHub Actions)
 
 ## 구조
-- api/ : FastAPI 앱 (main.py, models.py, schemas.py, oee.py, quality.py, database.py)
+- api/ : FastAPI 앱 (main.py, models.py, schemas.py, oee.py, quality.py, metrics.py, database.py)
 - db/schema.sql : 테이블 정의 + 설비 시드 3개
 - simulator/simulate.py : 가상 설비 데이터 전송기
+- monitoring/ : Prometheus 스크레이프 설정, Grafana 데이터소스·대시보드 프로비저닝
 
 ## 로컬 실행 주의
 - API 포트는 호스트 8001 (8000은 WSL의 다른 프로세스가 사용 중)

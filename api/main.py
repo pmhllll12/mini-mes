@@ -1,10 +1,12 @@
 import csv
 import io
+import time
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -13,12 +15,32 @@ import models
 import schemas
 from oee import calculate_oee
 from quality import calculate_defect_summary
+from metrics import HTTP_REQUEST_COUNT, HTTP_REQUEST_LATENCY
 
 # 로컬 개발 편의를 위해 앱 시작 시 테이블 자동 생성
 # (운영에서는 schema.sql / 마이그레이션 도구를 통해 관리)
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="mini-mes", version="0.1.0")
+
+
+@app.middleware("http")
+async def prometheus_http_middleware(request: Request, call_next):
+    start = time.perf_counter()
+    response = await call_next(request)
+    duration = time.perf_counter() - start
+
+    route = request.scope.get("route")
+    path = route.path if route else request.url.path  # path 템플릿 사용 (라벨 카디널리티 억제)
+    HTTP_REQUEST_COUNT.labels(request.method, path, response.status_code).inc()
+    HTTP_REQUEST_LATENCY.labels(request.method, path).observe(duration)
+    return response
+
+
+@app.get("/metrics")
+def metrics_endpoint():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
 
 # 설비 status 규칙:
 # - 생산실적 수신 시 qty_good+qty_defect > 0 이면 running, 0이면 stopped로 갱신한다.
