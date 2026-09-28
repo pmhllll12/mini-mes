@@ -13,7 +13,7 @@ import os
 from datetime import datetime
 
 from db import connect, fetch_training_rows, list_equipment_ids
-from features import extract_features
+from features import build_features
 from model import DEFAULT_THRESHOLD_QUANTILE, describe, fit_model, save_bundle
 
 MIN_TRAIN_ROWS = 50
@@ -30,6 +30,8 @@ def main():
     parser.add_argument("--equipment-ids", nargs="*", default=None, help="생략 시 전체 설비")
     parser.add_argument("--threshold-quantile", type=float, default=DEFAULT_THRESHOLD_QUANTILE)
     parser.add_argument("--model-dir", default=os.getenv("MODEL_DIR", "/models"))
+    parser.add_argument("--rolling-window", type=int, default=0,
+                        help="이동 구간 특징(최근 N구간 사이클타임 중앙값·합산 불량률) 사용. 0이면 사용 안 함")
     args = parser.parse_args()
 
     conn = connect()
@@ -41,8 +43,8 @@ def main():
                 log.warning("%s: 학습 데이터 %d건 (< %d) - 건너뜀", eq_id, len(rows), MIN_TRAIN_ROWS)
                 continue
 
-            X = extract_features(r[1:] for r in rows)
-            bundle = fit_model(X, threshold_quantile=args.threshold_quantile)
+            X = build_features((r[1:] for r in rows), args.rolling_window)
+            bundle = fit_model(X, threshold_quantile=args.threshold_quantile, rolling_window=args.rolling_window)
             bundle.update(
                 equipment_id=eq_id,
                 train_rows=len(rows),

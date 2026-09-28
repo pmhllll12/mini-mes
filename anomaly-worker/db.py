@@ -65,6 +65,24 @@ def fetch_unscored_rows(conn, equipment_id: str, after: datetime, lookback_hours
         return cur.fetchall()
 
 
+def fetch_context_rows(conn, equipment_id: str, before: datetime, limit: int):
+    """before 직전의 생산실적 limit건 (시간순) - 이동 구간 특징 계산용 이력. 이미 판정된 건·학습 구간 건도 포함한다."""
+    if limit <= 0:
+        return []
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT ts, cycle_time_sec, qty_good, qty_defect
+            FROM production_log
+            WHERE equipment_id = %s AND cycle_time_sec IS NOT NULL AND ts < %s
+            ORDER BY ts DESC
+            LIMIT %s
+            """,
+            (equipment_id, before, limit),
+        )
+        return list(reversed(cur.fetchall()))
+
+
 def insert_results(conn, equipment_id: str, results) -> int:
     """results: (ts, anomaly_score, is_anomaly). 이미 있는 (equipment_id, ts)는 건너뛴다."""
     inserted = 0

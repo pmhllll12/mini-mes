@@ -31,3 +31,26 @@ def test_reloads_when_model_file_changes(tmp_path):
     os.utime(path, (st.st_atime, st.st_mtime + 10))  # mtime 해상도와 무관하게 변경을 보장
     second = cache.get("EQ-001")
     assert second is not first
+
+
+def test_features_for_prepends_context_for_rolling_model(monkeypatch):
+    import worker
+
+    context = [(datetime(2026, 1, 1, 0, i, tzinfo=timezone.utc), 12.0, 5, 0) for i in range(4)]
+    rows = [(datetime(2026, 1, 1, 1, 0, tzinfo=timezone.utc), 36.0, 1, 1)]
+    calls = []
+
+    def fake_context(conn, equipment_id, before, limit):
+        calls.append((equipment_id, before, limit))
+        return context[-limit:]
+
+    monkeypatch.setattr(worker, "fetch_context_rows", fake_context)
+
+    X = worker.features_for(None, "EQ-001", rows, {"rolling_window": 5})
+    assert calls == [("EQ-001", rows[0][0], 4)]  # 직전 window-1건 이력 요청
+    assert X.shape == (1, 5)
+    # 튀는 1건(36초)은 이력 4건(12초)과 합쳐진 중앙값에 반영되지 않음
+    assert X[0, 3] == 12.0
+
+    X0 = worker.features_for(None, "EQ-001", rows, {})  # 이동 구간 특징 없는 모델은 이력을 조회하지 않음
+    assert X0.shape == (1, 3) and len(calls) == 1

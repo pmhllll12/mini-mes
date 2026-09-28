@@ -39,3 +39,18 @@ def test_load_labels_and_summarize_runs(tmp_path):
     runs = summarize_runs(labels)
     assert [(r["run_id"], r["count"], r["anomalies"]) for r in runs] == [("A", 1, 0), ("B", 2, 1)]
     assert runs[1]["start"] < runs[1]["end"]
+
+
+def test_recall_by_type_counts_only_scored_anomalies():
+    from evaluate import recall_by_type
+
+    ts = [datetime(2026, 9, 28, 4, 0, i, tzinfo=timezone.utc) for i in range(5)]
+    labels = [
+        {"equipment_id": "EQ-001", "ts": ts[0], "is_anomaly": True, "anomaly_type": "drift"},
+        {"equipment_id": "EQ-001", "ts": ts[1], "is_anomaly": True, "anomaly_type": "drift"},
+        {"equipment_id": "EQ-001", "ts": ts[2], "is_anomaly": True},            # 예전 라벨 -> spike
+        {"equipment_id": "EQ-001", "ts": ts[3], "is_anomaly": False, "anomaly_type": None},
+        {"equipment_id": "EQ-001", "ts": ts[4], "is_anomaly": True, "anomaly_type": "spike"},  # 미판정
+    ]
+    preds = {("EQ-001", ts[0]): True, ("EQ-001", ts[1]): False, ("EQ-001", ts[2]): True, ("EQ-001", ts[3]): True}
+    assert recall_by_type(labels, preds) == {"drift": (1, 2), "spike": (1, 1)}

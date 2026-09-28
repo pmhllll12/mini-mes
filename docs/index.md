@@ -64,7 +64,7 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 | v2: Isolation Forest + robust z-score (현재) | 0.920 | 1.000 | 0.959 |
 | v1: Isolation Forest 단독 (같은 평가 데이터로 재채점) | 0.812 | 0.388 | 0.525 |
 
-v1의 recall이 낮았던 원인(Isolation Forest의 점수 포화), 개선 과정, 설비별 결과와 주의사항은 [이상탐지 페이지]({{ '/anomaly-detection/' | relative_url }})에 정리했습니다.
+점진적 열화에는 v2의 recall이 0.407로 낮고, 이동 구간 특징(C안, 옵션)을 켜면 0.612로 오르는 대신 급변 이상의 오탐이 늘어납니다. v1의 recall이 낮았던 원인(Isolation Forest의 점수 포화), 개선 과정, 설비별 결과와 주의사항은 [이상탐지 페이지]({{ '/anomaly-detection/' | relative_url }})에 정리했습니다.
 
 ## 기술 스택
 

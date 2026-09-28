@@ -13,8 +13,8 @@ import time
 
 from prometheus_client import Counter, Gauge, start_http_server
 
-from db import connect, fetch_unscored_rows, insert_results, list_equipment_ids
-from features import extract_features
+from db import connect, fetch_context_rows, fetch_unscored_rows, insert_results, list_equipment_ids
+from features import build_features
 from model import describe, load_bundle, model_path, score
 
 MODEL_DIR = os.getenv("MODEL_DIR", "/models")
@@ -56,6 +56,14 @@ class ModelCache:
         return bundle
 
 
+def features_for(conn, equipment_id: str, rows, bundle: dict):
+    """판정할 rows(ts, cycle, good, defect; 시간순)의 특징. 이동 구간 특징을 쓰는 모델이면 직전 이력을 붙여 계산한다."""
+    window = bundle.get("rolling_window", 0)
+    context = fetch_context_rows(conn, equipment_id, rows[0][0], window - 1) if window > 0 else []
+    X = build_features((r[1:] for r in [*context, *rows]), window)
+    return X[len(context):]
+
+
 def run_once(conn, models: ModelCache) -> None:
     missing = []
     for eq_id in list_equipment_ids(conn):
@@ -70,7 +78,7 @@ def run_once(conn, models: ModelCache) -> None:
         rows = fetch_unscored_rows(conn, eq_id, bundle["train_end"], LOOKBACK_HOURS)
         if not rows:
             continue
-        X = extract_features(r[1:] for r in rows)
+        X = features_for(conn, eq_id, rows, bundle)
         scores, flags = score(bundle, X)
         inserted = insert_results(conn, eq_id, zip((r[0] for r in rows), scores, flags))
         ANOMALY_SCORE.labels(eq_id).set(float(scores.max()))

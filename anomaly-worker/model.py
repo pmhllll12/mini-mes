@@ -22,7 +22,7 @@ import joblib
 import numpy as np
 from sklearn.ensemble import IsolationForest
 
-from features import FEATURE_NAMES
+from features import feature_names
 
 DEFAULT_THRESHOLD_QUANTILE = 0.99
 MODEL_VERSION = 2
@@ -52,7 +52,9 @@ def fit_model(
     X: np.ndarray,
     threshold_quantile: float = DEFAULT_THRESHOLD_QUANTILE,
     random_state: int = 42,
+    rolling_window: int = 0,
 ) -> dict:
+    """X는 features.build_features(rows, rolling_window)로 만든 특징"""
     model = IsolationForest(n_estimators=200, random_state=random_state)
     model.fit(X)
     train_if = -model.score_samples(X)
@@ -71,7 +73,8 @@ def fit_model(
         "z_threshold": z_threshold,
         "threshold": float(np.quantile(train_scores, threshold_quantile)),
         "threshold_quantile": threshold_quantile,
-        "feature_names": list(FEATURE_NAMES),
+        "rolling_window": rolling_window,
+        "feature_names": feature_names(rolling_window),
     }
 
 
@@ -112,7 +115,10 @@ def describe(bundle: dict) -> str:
 
     detail = ""
     if bundle.get("version", 1) >= 2:
-        detail = f" [if_threshold={bundle['if_threshold']:.4f}, z_threshold={bundle['z_threshold']:.2f}]"
+        detail = f" [if_threshold={bundle['if_threshold']:.4f}, z_threshold={bundle['z_threshold']:.2f}"
+        if bundle.get("rolling_window", 0):
+            detail += f", rolling_window={bundle['rolling_window']}"
+        detail += "]"
     return (
         f"v{bundle.get('version', 1)} rows={bundle['train_rows']} "
         f"range={fmt(bundle['train_start'])}~{fmt(bundle['train_end'])} "
