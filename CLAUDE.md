@@ -20,6 +20,7 @@ FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana, GitHub 
 
 ## 로컬 실행 주의
 - API 포트는 호스트 8001 (8000은 WSL의 다른 프로세스가 사용 중)
+- docs/ Jekyll 로컬 미리보기는 포트 4002 (`cd docs && jekyll serve --port 4002`, http://localhost:4002/mini-mes/). 4000·4001은 다른 프로젝트(super-sub.cloud, demo)의 jekyll serve가 사용 중
 - 스키마 변경 시 `docker compose down -v` 후 재기동 (schema.sql은 최초 1회만 실행됨). down -v는 모델 볼륨(anomaly_models)도 지우므로 재학습 필요 (README "이상탐지 워커" 절차)
 - 로컬 python은 3.14라 scikit-learn 고정 버전 설치가 안 됨 → 워커/평가 테스트는 python:3.12 컨테이너에서 실행
 
