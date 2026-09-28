@@ -7,9 +7,10 @@
 FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana, GitHub Actions, Helm(k3d 로컬 검증), scikit-learn(Isolation Forest) (이후 Terraform, K3s 서버 배포)
 
 ## 구조
-- api/ : FastAPI 앱 (main.py, models.py, schemas.py, oee.py, quality.py, anomaly.py, metrics.py, database.py)
+- api/ : FastAPI 앱 (main.py, models.py, schemas.py, oee.py, quality.py, anomaly.py, metrics.py, database.py, nlq_tools.py 자연어 질의 읽기 전용 도구, nlq_providers.py Claude·Gemini 어댑터)
 - api/tests/ : pytest 테스트 (Postgres 필요, db/schema.sql 적용된 DB 대상). conftest.py의 autouse fixture가 테스트 프로세스가 넣은 행(after_insert 추적)과 워커가 그 로그를 판정한 결과를 지우고 설비 status를 복원 (KEEP_TEST_DATA=1이면 유지)
 - anomaly-worker/ : 이상탐지 워커 컨테이너 (features.py 특징 추출, model.py 설비별 Isolation Forest + robust z-score 결합(v2, v1 번들도 호환), features.py build_features(--rolling-window 이동 구간 특징, 기본 꺼짐), train.py 학습 CLI, worker.py 주기 추론 + :9100 메트릭 + 급변/열화 경보 분리, db.py). 모델은 anomaly_models 볼륨(/models)에 저장. tests/는 DB 없이 실행
+- evaluate/nlq_eval.py + nlq_questions.json : 자연어 질의 평가(도구 선택·인자·근거·안내 문구). 실제 LLM 호출이라 비용·무료 한도 소모 → 실행 전 사용자 확인
 - evaluate/evaluate.py : 시뮬레이터 라벨과 anomaly_result를 (equipment_id, ts)로 매칭해 precision/recall/F1 계산 (anomaly-worker 이미지 안에서 실행). --score-with DIR이면 그 모델로 직접 채점(DB 기록 없음, 모델 비교용), 유형별 recall 출력
 - db/schema.sql : 테이블 정의 + 설비 시드 3개
 - simulator/simulate.py : 가상 설비 데이터 전송기. --labels-file로 이상 여부 라벨(JSONL, run_id 단위, anomaly_type spike/drift)을 남김. --drift-rate로 점진적 열화 모드(기본 0이면 기존과 동일). labels.jsonl은 gitignore
@@ -23,6 +24,8 @@ FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana, GitHub 
 - docs/ Jekyll 로컬 미리보기는 포트 4002 (`cd docs && jekyll serve --port 4002`, http://localhost:4002/mini-mes/). 4000·4001은 다른 프로젝트(super-sub.cloud, demo)의 jekyll serve가 사용 중
 - 스키마 변경 시 `docker compose down -v` 후 재기동 (schema.sql은 최초 1회만 실행됨). down -v는 모델 볼륨(anomaly_models)도 지우므로 재학습 필요 (README "이상탐지 워커" 절차)
 - helm·k3d는 ~/.local/bin에 설치됨 (helm v3.16.2, k3d v5.7.4). k3d 검증 시 호스트 8001은 compose API가 쓰므로 port-forward는 18001 등 다른 포트 사용
+- LLM API 키는 루트 .env에만 (ANTHROPIC_API_KEY, GEMINI_API_KEY, .env.example 참고). 키 값을 출력·커밋하지 않는다. Gemini 무료 등급은 모델당 하루 20회 한도 (gemini-flash-latest=gemini-3.8-flash, gemini-2.5-flash는 별도 한도). Anthropic 조직 크레딧 $0이라 Claude는 미검증
+- Gemini function calling: 함수 결과는 role="user"로 전송 (role="tool"은 Developer API가 400)
 - 로컬 python은 3.14라 scikit-learn 고정 버전 설치가 안 됨 → 워커/평가 테스트는 python:3.12 컨테이너에서 실행
 
 ## 이상탐지 규칙
@@ -34,11 +37,12 @@ FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana, GitHub 
 ## 설계 원칙 (실무 경험 기반 개선점)
 - 설비를 하나씩 조회하지 않고 다중/전체 설비를 한 번에 조회 (equipment_ids 파라미터)
 - 화면 조작 없이 API로 조건 지정 + CSV 바로 내보내기
-- 예정: 자연어 질의(Gemini function calling), 예약 리포트
+- 자연어 질의는 LLM이 SQL을 만들지 않고 검증된 읽기 전용 도구만 호출, 응답에 근거(도구·인자·결과) 포함
+- 예정: 예약 리포트
 
 ## 로드맵
 1주 코어 API/시뮬레이터 → 2주 OEE 고도화 → 3주 모니터링 → 4주 K3s/Helm (완료)
-→ 5주 이상탐지(Isolation Forest) (완료) → 6주 자연어 질의 → 7주 Terraform/CI-CD/문서화
+→ 5주 이상탐지(Isolation Forest) (완료) → 6주 자연어 질의 (구현, 평가 일부) → 7주 Terraform/CI-CD/문서화
 
 ## 알려진 이슈
 - (해결됨, 2주차) production_log.qty_defect 와 quality_event 가 서로 연결되어 있지 않던 문제 → quality_event.production_log_id(nullable FK) 추가, `/quality/defect-summary` API로 설비별·불량유형별 집계 제공

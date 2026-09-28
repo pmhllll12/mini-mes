@@ -11,8 +11,8 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 - 실행 방법·API 상세: [README](https://github.com/pmhllll12/mini-mes#readme)
 - 이상탐지 설계와 성능 평가: [이상탐지]({{ '/anomaly-detection/' | relative_url }})
 
-> **현재 상태:** 5주차 완료 — 핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링, GitHub Actions CI, Helm 차트 + k3d 로컬 검증, 이상탐지 워커 + 가상 데이터 기준 성능 평가.
-> Terraform, 자연어 질의는 아직 구현 전이며, K3s 서버 배포 대상도 아직 정하지 않았습니다.
+> **현재 상태:** 6주차 진행 중 — 핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링, GitHub Actions CI, Helm 차트 + k3d 로컬 검증, 이상탐지 워커 + 가상 데이터 기준 성능 평가, 자연어 질의 API(Gemini로 부분 평가, Claude 미평가).
+> Terraform은 아직 구현 전이며, K3s 서버 배포 대상도 아직 정하지 않았습니다.
 
 ## 배경
 
@@ -28,7 +28,7 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 | 설비를 하나씩 따로 조회 | `equipment_ids` 다중 지정, 생략 시 전체 설비 일괄 조회 | 구현 |
 | 다운로드 후 엑셀에서 재가공 | 조건에 맞는 CSV를 바로 내려받는 export API | 구현 |
 | 사람이 매번 조작해야 해서 자동화 불가 | REST API 제공 | 구현 |
-| 원하는 정보를 말로 묻고 싶음 | 자연어 질의 (LLM function calling) | 예정 |
+| 원하는 정보를 말로 묻고 싶음 | 자연어 질의 `POST /query` (LLM function calling, 읽기 전용 도구) | 구현 |
 | 같은 리포트를 반복해서 수동 추출 | 예약 리포트 자동 발송 | 예정 |
 
 ## 아키텍처
@@ -50,6 +50,7 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 | 수집 | `POST /production-logs`(생산실적), `POST /quality-events`(불량 유형·심각도, 생산실적 건과 연결) |
 | 조회·집계 | `/oee`, `/quality/defect-summary`, `/anomalies` — 모두 `equipment_ids` 생략 시 전체 설비를 한 번에 조회 |
 | 내보내기 | `/export/production-logs` — 조건(기간·설비)을 넘기면 바로 CSV |
+| 자연어 질의 | `POST /query` — LLM(Claude·Gemini)이 읽기 전용 도구 4개를 골라 호출하고 답변과 근거(도구·인자·결과)를 반환. Gemini 평가 8/12 완료, 8/8 통과 |
 | 이상탐지 | 설비별 Isolation Forest 워커(별도 컨테이너), 정상 데이터만 학습, 모델은 볼륨에 저장 |
 | 모니터링 | API·워커 `/metrics` → Prometheus → Grafana 대시보드 (프로비저닝 파일로 자동 구성) |
 | CI | GitHub Actions: ruff, API 테스트(Postgres 서비스 컨테이너), 워커 단위 테스트, API·워커 이미지 빌드 |
@@ -82,5 +83,5 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 | 3주 | Prometheus + Grafana 모니터링 스택 | ✅ |
 | 4주 | Helm 차트 + k3d 로컬 검증 | ✅ |
 | 5주 | 이상탐지(예지보전) 워커, `/anomalies` API, 워커 메트릭·Grafana 패널, 라벨 기반 성능 평가, CI | ✅ |
-| 6주 | 자연어 질의 API | |
+| 6주 | 자연어 질의 API (Claude·Gemini function calling) — Gemini 8/12 평가 완료, Claude 미평가 | 진행 중 |
 | 7주 | Terraform, 문서화·데모 영상 | |

@@ -3,8 +3,8 @@
 제조 설비의 생산실적·가동률(OEE)·품질 이력을 수집하고 집계하는 미니 MES(Manufacturing Execution System) 개인 프로젝트입니다.
 Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단계적으로 고도화하며 만들고 있습니다.
 
-> **현재 상태:** 5주차 완료 (핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링, GitHub Actions CI, Helm 차트 + k3d 로컬 검증, 이상탐지 워커 + 가상 데이터 기준 성능 평가).
-> Terraform, 자연어 질의는 아직 구현 전이며, K3s 서버 배포 대상도 아직 정하지 않았습니다.
+> **현재 상태:** 6주차 진행 중 (핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링, GitHub Actions CI, Helm 차트 + k3d 로컬 검증, 이상탐지 워커 + 가상 데이터 기준 성능 평가, 자연어 질의 API — Gemini로 부분 평가, Claude 미평가).
+> Terraform은 아직 구현 전이며, K3s 서버 배포 대상도 아직 정하지 않았습니다.
 
 프로젝트 소개 페이지(GitHub Pages, Jekyll): https://pmhllll12.github.io/mini-mes/ — 소스는 `docs/` (로컬 미리보기: `cd docs && jekyll serve --port 4002` → http://localhost:4002/mini-mes/)
 
@@ -25,7 +25,7 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 | 설비를 하나씩 따로 조회 | `equipment_ids` 다중 지정, 생략 시 전체 설비 일괄 조회 | 구현 |
 | 다운로드 후 엑셀에서 재가공 | 조건에 맞는 CSV를 바로 내려받는 export API | 구현 |
 | 사람이 매번 조작해야 해서 자동화 불가 | REST API 제공 | 구현 |
-| 원하는 정보를 말로 묻고 싶음 | 자연어 질의 (LLM function calling) | 예정 |
+| 원하는 정보를 말로 묻고 싶음 | 자연어 질의 `POST /query` (LLM function calling, 읽기 전용 도구) | 구현 |
 | 같은 리포트를 반복해서 수동 추출 | 예약 리포트 자동 발송 | 예정 |
 
 ## 구현된 API
@@ -41,6 +41,7 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 | GET | `/quality/defect-summary?equipment_ids=&hours=` | 설비별·불량유형별 불량 집계 |
 | GET | `/anomalies?equipment_ids=&hours=` | 여러 설비(생략 시 전체) 이상탐지 결과 일괄 조회 (판정 건수, 이상 건수, 최대 점수, 이상 판정 목록) |
 | GET | `/export/production-logs?equipment_ids=&start=&end=` | 생산실적 CSV 다운로드 |
+| POST | `/query` | 자연어 질의 — LLM이 읽기 전용 도구를 호출해 답변 + 근거(호출한 도구·인자·결과) 반환 (API 키 필요) |
 
 ## 설비 status 규칙
 
@@ -178,6 +179,34 @@ docker compose logs -f anomaly-worker
 - 점진적 열화에는 v2의 recall이 0.407로 낮고, 이동 구간 특징(열화 경보 모델)은 0.612로 더 일찍 잡습니다(진행도 50~75% 구간 recall 0.44 → 0.95). 대신 급변 이상 직후로 경보가 번져 급변 판정에 쓰면 F1이 0.970 → 0.861로 떨어지므로, 두 경보를 나눴습니다.
 - 열화 경보 검증 실행분(1500건, 에피소드 19개): 에피소드 18/19 감지, 에피소드당 경보 1.00번(깜빡임 완화 전 2.05번), 첫 경보는 20구간 중 9번째(중앙값). 열화가 끝난 뒤에도 평균 약 5구간 경보가 이어지고, 열화 초반(진행도 25% 미만)은 거의 잡지 못합니다.
 
+## 자연어 질의 (LLM function calling)
+
+`POST /query`에 질문을 보내면 LLM이 **읽기 전용 도구**를 골라 호출하고, 그 결과로 답합니다. LLM은 SQL을 만들지 않습니다.
+
+```bash
+curl -X POST http://localhost:8001/query -H 'Content-Type: application/json' \
+     -d '{"question": "최근 1시간 EQ-002에서 가장 많이 나온 불량 유형은?"}'
+# -> answer + tool_calls: [{"name": "get_defect_summary", "input": {"equipment_ids": ["EQ-002"], "start": "...", "end": "..."}, "ok": true, "result": {...}}]
+```
+
+- 도구 4개: `list_equipment`, `get_oee`, `get_defect_summary`, `get_anomalies` — 기존 조회 API와 같은 계산 코드를 재사용 (`api/nlq_tools.py`)
+- 인자 검증: 등록된 설비만, 시간대가 있는 ISO 8601, 최대 30일. 잘못된 인자는 오류 메시지를 LLM에 돌려줘 스스로 고치게 합니다.
+- 응답에 **호출한 도구·인자·결과**를 함께 돌려줘 답변의 근거를 확인할 수 있습니다. 도구 호출은 최대 3라운드, 그 뒤에는 도구 없이 답변만 받습니다.
+- 제공자 두 가지 (`api/nlq_providers.py`): Claude(`claude-opus-5`, strict 도구, 거절 시 서버측 `fallbacks="default"`) / Gemini(`gemini-flash-latest`, 수동 function calling). 요청의 `provider`, 환경변수 `NLQ_PROVIDER`, 키가 있는 제공자 순으로 고릅니다.
+- **API 키는 `.env`에만** 넣습니다: `cp .env.example .env` 후 `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` 입력 (`.env`는 커밋되지 않음). 키가 없으면 `/query`만 503이고 다른 API는 그대로 동작합니다.
+- 메트릭: `mes_nlq_requests_total{provider,outcome}`, `mes_nlq_tool_calls_total{provider,tool,ok}`
+
+**평가** (`evaluate/nlq_eval.py`, 질문 12개): 도구 선택, 설비·기간 인자, 도구 결과를 답변에 그대로 전했는지(근거), 없는 설비·조회 불가 항목·범위 밖 질문에 추측 없이 안내하는지를 채점합니다.
+
+| 제공자 · 모델 (2026-09-28) | 평가 완료 | 통과 | 도구 선택 | 설비 인자 | 기간 인자 | 근거 | 안내 문구 | 평균 응답 |
+|---|---|---|---|---|---|---|---|---|
+| Gemini · `gemini-2.5-flash` | 8 / 12 | **8 / 8** | 7/7 | 6/6 | 6/6 | 3/3 | 1/1 | 4.5초 |
+| Claude · `claude-opus-5` | 미평가 (API 크레딧 없음) | | | | | | | |
+
+- **미평가 4개**(LINE-B 설비, 두 설비 이상 비교, 없는 설비 EQ-009, 범위 밖 예측 질문)는 Gemini 무료 등급 하루 요청 한도(모델당 20회)에 걸려 요청 자체가 실패(429)했습니다. 모델 오답이 아니며, 기본 모델 `gemini-flash-latest`(= gemini-3.8-flash)도 같은 날 한도를 다 써서 `gemini-2.5-flash`로 평가했습니다.
+- 답변 수치를 조회 API로 직접 대조: "최근 24시간 이상 최다 설비 EQ-003, 626건"은 일치. "오늘 EQ-002 최다 불량 dimension_out 217건, scratch도 217건으로 동일"은 **217이 불량 수량(개)인데 건수처럼 표현**했고 실제 이벤트 건수는 213 vs 204라 동률이 아님 — 자동 채점(정답 유형 포함 여부)은 통과했지만 수치 표현은 부정확했습니다.
+- 실제 API 호출로 발견해 고친 점: Gemini에 함수 결과를 `role="tool"`로 보내면 400(SDK README 예제와 다름) → `role="user"`로 전송, 일시 과부하(503) 대비 재시도.
+
 ## 아키텍처
 
 ```
@@ -305,8 +334,8 @@ minikube를 쓴다면 2)의 `k3d image import` 대신 `minikube image load mini-
 
 ## 기술 스택
 
-- 현재: Python, FastAPI, SQLAlchemy, PostgreSQL 16, Docker Compose, Prometheus, Grafana, GitHub Actions, Helm/k3d(로컬 검증), scikit-learn(Isolation Forest)
-- 예정: Terraform, K3s 서버 배포, Gemini(function calling)
+- 현재: Python, FastAPI, SQLAlchemy, PostgreSQL 16, Docker Compose, Prometheus, Grafana, GitHub Actions, Helm/k3d(로컬 검증), scikit-learn(Isolation Forest), Claude·Gemini API(function calling)
+- 예정: Terraform, K3s 서버 배포
 
 ## 로드맵
 
@@ -317,7 +346,7 @@ minikube를 쓴다면 2)의 `k3d image import` 대신 `minikube image load mini-
 | 3주 | Prometheus + Grafana 모니터링 스택 추가 (`/metrics`, 대시보드 프로비저닝) | ✅ |
 | 4주 | Helm 차트 작성 + k3d 로컬 검증 (Secret/PVC/probe, 서버 배포 대상은 미정). 5주차 이후 anomaly-worker(Deployment·모델 PVC·메트릭 Service), Prometheus·Grafana도 차트에 추가 | ✅ |
 | 5주 | 이상탐지(예지보전) 워커: 설비별 Isolation Forest + robust z-score(정상 데이터만 학습), `/anomalies` API, 급변·열화 경보 분리, 워커 메트릭·Grafana 패널, 시뮬레이터 라벨 기반 성능 평가(가상 데이터 기준 급변 F1 v1 0.525 → v2 0.959), 워커 단위 테스트·CI | ✅ |
-| 6주 | 자연어 질의 API 추가 | |
+| 6주 | 자연어 질의 API(`POST /query`, Claude·Gemini function calling, 읽기 전용 도구 4개, 근거 반환), 평가 스크립트 — Gemini 8/12 평가 완료(8/8 통과), Claude 미평가 | 진행 중 |
 | 7주 | Terraform, 문서화·데모 영상 (GitHub Actions CI는 완료) | |
 
 ## 알려진 한계
@@ -330,6 +359,7 @@ minikube를 쓴다면 2)의 `k3d image import` 대신 `minikube image load mini-
   - 설비별 모델이라 새 설비를 추가하거나 공정 조건이 바뀌면 재학습이 필요하고(자동 재학습 없음), 학습 데이터가 정상인지는 사람이 학습 구간을 지정해서 보장합니다.
   - 열화 경보는 DB에 남지 않고(스키마 유지) 메트릭으로만 남으며, 열화가 끝난 뒤에도 몇 구간 더 켜져 있습니다.
   - `anomaly_result`에 생산실적 ID가 없어 `(equipment_id, ts)`로 같은 로그인지 판단합니다.
+- 자연어 질의: 평가는 질문 12개 중 8개만 완료(Gemini 무료 한도), Claude는 미평가입니다. 수치를 단위(건/개)까지 정확히 전하는지는 자동 채점이 확인하지 못합니다. Helm 차트에는 아직 LLM API 키 설정이 없어 클러스터에서는 `/query`가 503입니다.
 - Helm 차트(워커·Prometheus·Grafana 포함)는 k3d 로컬 검증까지만 했습니다 (k3d 기본 local-path 저장소라 PVC도 노드 한 대의 디스크에 있음).
 
 ## 개발 기간
