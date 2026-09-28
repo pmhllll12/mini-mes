@@ -29,3 +29,18 @@ anomalyWorker:
   lookbackHours: 24
   metricsPort: 9100
   modelStorage: 100Mi
+
+# 모니터링 - Prometheus(api·워커 스크레이프) + Grafana(대시보드 프로비저닝). docker-compose의 monitoring/ 구성과 동일
+# files/grafana-dashboard.json은 monitoring/grafana/dashboards/mini-mes.json의 복사본 (CI에서 동기화 검사)
+monitoring:
+  enabled: true
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    port: 9090
+    scrapeInterval: 10s
+    retention: 15d   # 저장소는 emptyDir - 파드를 지우면 메트릭 이력도 사라짐 (로컬 검증용)
+  grafana:
+    image: grafana/grafana:11.3.0
+    port: 3000
+    adminUser: admin
+    adminPassword: admin   # 로컬 검증용 기본값. 실제 배포 시 --set monitoring.grafana.adminPassword=... 로 변경

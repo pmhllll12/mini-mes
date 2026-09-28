@@ -14,9 +14,9 @@ FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana, GitHub 
 - db/schema.sql : 테이블 정의 + 설비 시드 3개
 - simulator/simulate.py : 가상 설비 데이터 전송기. --labels-file로 이상 여부 라벨(JSONL, run_id 단위, anomaly_type spike/drift)을 남김. --drift-rate로 점진적 열화 모드(기본 0이면 기존과 동일). labels.jsonl은 gitignore
 - monitoring/ : Prometheus 스크레이프 설정(api, anomaly-worker), Grafana 데이터소스·대시보드 프로비저닝
-- .github/workflows/ci.yml : push/PR 시 lint(ruff)·API 테스트·워커/평가 단위 테스트·API/워커 Docker 빌드
+- .github/workflows/ci.yml : push/PR 시 lint(ruff)·API 테스트·워커/평가 단위 테스트·차트(복사본 동기화 diff, helm lint/template)·API/워커 Docker 빌드
 - docs/ : GitHub Pages(Jekyll, minima 테마) 소개 사이트 (index.md 개요, anomaly-detection.md 평가 상세). README의 수치·로드맵을 바꾸면 함께 갱신
-- charts/mini-mes/ : api·db·anomaly-worker(모델 PVC, 메트릭 Service) Helm 차트 (k3d/minikube 로컬 검증용, 서버 배포 대상 미정). files/schema.sql은 db/schema.sql 복사본이므로 수동 동기화 필요
+- charts/mini-mes/ : api·db·anomaly-worker(모델 PVC, 메트릭 Service)·Prometheus·Grafana(monitoring.enabled) Helm 차트 (k3d/minikube 로컬 검증용, 서버 배포 대상 미정). files/schema.sql, files/grafana-dashboard.json은 db/schema.sql, monitoring/grafana/dashboards/mini-mes.json 복사본 → 원본 수정 시 같이 수정 (CI chart 작업이 diff로 검사)
 
 ## 로컬 실행 주의
 - API 포트는 호스트 8001 (8000은 WSL의 다른 프로세스가 사용 중)
@@ -45,4 +45,4 @@ FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana, GitHub 
 - (해결됨, 5주차) Isolation Forest 점수가 학습 범위 밖에서 포화되어 recall이 낮던 문제(v1: P 0.896 / R 0.453 / F1 0.602) → robust z-score 결합(v2: 새 평가 실행분 기준 P 0.920 / R 1.000 / F1 0.959). 시뮬레이터 이상이 쉬운 이상이라 나온 수치.
 - (5주차, 옵션으로 유지) C안 이동 구간 특징(K=5): 점진적 열화 recall 0.407 → 0.612, 대신 이상 직후 오탐 증가로 급변 F1 0.970 → 0.861. 워커 기본은 v2.
 - (5주차) 급변·열화 경보 분리: 급변=/models(v2)→anomaly_result, 열화=/models/drift(C, K=5)→mes_drift_* 메트릭·로그만(스키마에 탐지기 구분 없음). 급변 판정 건은 열화 경보 판단 보류(None). 히스테리시스 2구간 연속 시작/3구간 연속 해제(DRIFT_RAISE_AFTER/DRIFT_CLEAR_AFTER). 검증 실행분 기준 경보 76→25, 에피소드당 1.00, 도중 해제 0. 남은 문제: 열화 종료 후 약 5구간 경보 지속, 열화 초반 미감지, 열화 이력 DB 미보관
-- Helm 차트의 anomaly-worker는 k3d 로컬 검증까지만. 차트에 Prometheus/Grafana가 없어 클러스터에서는 워커 메트릭 미수집
+- Helm 차트(워커·Prometheus·Grafana 포함)는 k3d 로컬 검증까지만. 차트 Prometheus 저장소는 emptyDir(재시작 시 메트릭·열화 경보 이력 소실). k3d 검증 시 port-forward는 18001(api)/19090(prometheus)/13000(grafana) 사용 (compose와 충돌 방지)

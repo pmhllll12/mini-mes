@@ -71,9 +71,30 @@ jobs:
         run: pytest -v
         working-directory: evaluate
 
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Helm은 차트 밖 파일을 읽지 못해 복사본을 두므로, 원본과 어긋나면 실패시킨다
+      - name: Check chart file copies are in sync
+        run: |
+          diff -u db/schema.sql charts/mini-mes/files/schema.sql
+          diff -u monitoring/grafana/dashboards/mini-mes.json charts/mini-mes/files/grafana-dashboard.json
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: Helm lint and render
+        run: |
+          helm lint charts/mini-mes
+          helm template mini-mes charts/mini-mes > /dev/null
+          helm template mini-mes charts/mini-mes --set monitoring.enabled=false --set anomalyWorker.enabled=false > /dev/null
+
   docker-build:
     runs-on: ubuntu-latest
-    needs: [test, anomaly-worker-test]
+    needs: [test, anomaly-worker-test, chart]
     steps:
       - uses: actions/checkout@v4
 

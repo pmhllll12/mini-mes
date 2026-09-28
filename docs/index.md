@@ -51,7 +51,7 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 | 이상탐지 | 설비별 Isolation Forest 워커(별도 컨테이너), 정상 데이터만 학습, 모델은 볼륨에 저장 |
 | 모니터링 | API·워커 `/metrics` → Prometheus → Grafana 대시보드 (프로비저닝 파일로 자동 구성) |
 | CI | GitHub Actions: ruff, API 테스트(Postgres 서비스 컨테이너), 워커 단위 테스트, API·워커 이미지 빌드 |
-| 배포 | Helm 차트(api·db·anomaly-worker, Secret/PVC/probe) + k3d 로컬 검증 |
+| 배포 | Helm 차트(api·db·anomaly-worker·Prometheus·Grafana, Secret/PVC/probe) + k3d 로컬 검증 |
 
 ## 이상탐지 결과 요약
 

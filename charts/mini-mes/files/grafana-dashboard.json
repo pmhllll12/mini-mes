@@ -1,0 +1,255 @@
+{
+  "id": null,
+  "uid": "mini-mes-overview",
+  "title": "mini-mes 개요",
+  "tags": ["mini-mes"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "설비별 OEE (최근 1시간)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "min": 0, "max": 1 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+          "expr": "mes_equipment_oee",
+          "legendFormat": "{{equipment_id}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "설비별 가동률·양품률 (최근 1시간)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "min": 0, "max": 1 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+          "expr": "mes_equipment_availability",
+          "legendFormat": "{{equipment_id}} 가동률",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+          "expr": "mes_equipment_quality_rate",
+          "legendFormat": "{{equipment_id}} 양품률",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "설비별·불량유형별 불량 수량 (최근 24시간)",
+      "type": "bargauge",
+      "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0 },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+          "expr": "mes_defect_qty",
+          "legendFormat": "{{equipment_id}} / {{defect_type}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "API 요청 수 (경로별, 5분 rate)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "min": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+          "expr": "sum(rate(mes_http_requests_total[5m])) by (path)",
+          "legendFormat": "{{path}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "API 지연시간 p95 (경로별)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "min": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+          "expr": "histogram_quantile(0.95, sum(rate(mes_http_request_duration_seconds_bucket[5m])) by (le, path))",
+          "legendFormat": "{{path}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "이상 점수 추이",
+      "description": "anomaly-worker가 판정 주기마다 계산한 설비별 최대 이상 점수(클수록 이상, v2는 1 근처가 threshold이고 범위 밖으로 멀어질수록 계속 커짐). 점선은 설비별 threshold.",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 24 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0, "decimals": 3 },
+        "overrides": [
+          {
+            "matcher": { "id": "byRegexp", "options": ".*threshold$" },
+            "properties": [
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } },
+              { "id": "custom.lineWidth", "value": 1 }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+          "expr": "mes_anomaly_score",
+          "legendFormat": "{{equipment_id}}",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+          "expr": "mes_anomaly_threshold",
+          "legendFormat": "{{equipment_id}} threshold",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "이상 탐지 횟수 (최근 1시간)",
+      "type": "bargauge",
+      "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 24 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0, "decimals": 0 },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+          "expr": "sum(increase(mes_anomaly_detected_total[1h])) by (equipment_id)",
+          "legendFormat": "{{equipment_id}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "열화 점수 추이",
+      "description": "열화 감시 모델(이동 구간 특징)이 판정 주기마다 계산한 설비별 최근 열화 점수. 점선은 설비별 threshold. 급변 이상 직후에도 몇 구간 동안 올라갈 수 있음.",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 32 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0, "decimals": 3 },
+        "overrides": [
+          {
+            "matcher": { "id": "byRegexp", "options": ".*threshold$" },
+            "properties": [
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } },
+              { "id": "custom.lineWidth", "value": 1 }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+          "expr": "mes_drift_score",
+          "legendFormat": "{{equipment_id}}",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+          "expr": "mes_drift_threshold",
+          "legendFormat": "{{equipment_id}} threshold",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "열화 경보 상태",
+      "description": "설비별 열화 경보(1=경보 중)와 최근 1시간 경보 발생 횟수.",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 32 },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "정상", "color": "green" }, "1": { "text": "열화 경보", "color": "red" } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byFrameRefID", "options": "B" },
+            "properties": [
+              { "id": "mappings", "value": [] },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [ { "color": "text", "value": null } ] } }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "colorMode": "background",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+          "expr": "mes_drift_alarm",
+          "legendFormat": "{{equipment_id}}",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+          "expr": "round(sum(increase(mes_drift_alarm_raised_total[1h])) by (equipment_id))",
+          "legendFormat": "{{equipment_id}} 1시간 경보 횟수",
+          "refId": "B"
+        }
+      ]
+    }
+  ]
+}

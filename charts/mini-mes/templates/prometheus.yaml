@@ -1,0 +1,100 @@
+{{- define "mini-mes.prometheusConfig" -}}
+{{- $fullname := include "mini-mes.fullname" . -}}
+global:
+  scrape_interval: {{ .Values.monitoring.prometheus.scrapeInterval }}
+
+scrape_configs:
+  - job_name: "mini-mes-api"
+    static_configs:
+      - targets: ["{{ $fullname }}-api:{{ .Values.api.service.port }}"]
+{{- if .Values.anomalyWorker.enabled }}
+
+  - job_name: "mini-mes-anomaly-worker"
+    static_configs:
+      - targets: ["{{ $fullname }}-anomaly-worker:{{ .Values.anomalyWorker.metricsPort }}"]
+{{- end }}
+{{- end }}
+
+{{- if .Values.monitoring.enabled }}
+{{- $fullname := include "mini-mes.fullname" . }}
+{{- $prom := .Values.monitoring.prometheus }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-prometheus
+  labels:
+    {{- include "mini-mes.labels" . | nindent 4 }}
+data:
+  prometheus.yml: |
+    {{- include "mini-mes.prometheusConfig" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-prometheus
+  labels:
+    {{- include "mini-mes.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "mini-mes.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: prometheus
+  template:
+    metadata:
+      labels:
+        {{- include "mini-mes.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: prometheus
+      annotations:
+        checksum/config: {{ include "mini-mes.prometheusConfig" . | sha256sum | trunc 16 }}  # 설정이 바뀌면 파드 재시작
+    spec:
+      containers:
+        - name: prometheus
+          image: {{ $prom.image }}
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time={{ $prom.retention }}
+          ports:
+            - name: http
+              containerPort: {{ $prom.port }}
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+            - name: data
+              mountPath: /prometheus
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $fullname }}-prometheus
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-prometheus
+  labels:
+    {{- include "mini-mes.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "mini-mes.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+  ports:
+    - name: http
+      port: {{ $prom.port }}
+      targetPort: http
+{{- end }}
