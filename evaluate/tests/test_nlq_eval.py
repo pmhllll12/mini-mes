@@ -71,3 +71,24 @@ def test_dates_check_for_daily_report_question():
     assert grade(item, body("2026-09-28", "2026-09-28"), now)["range"] is True
     assert grade(item, body("2026-09-27", "2026-09-27"), now)["range"] is False
     assert grade(item, body("2026-09-28", "2026-09-29"), now)["range"] is False
+
+
+def test_language_check_rejects_chinese_answer():
+    from nlq_eval import language_ok
+    # 2026-09-29 로컬 qwen2.5:7b-instruct의 실제 답변 앞부분 (anomaly_top_24h)
+    assert not language_ok("感谢提供的数据。以下是对这些数据的解读： 1. 设备编号为 “EQ-001”的异常报告: 分析期间共得到1324个指标得分，发现457个异常。")
+    assert language_ok("최근 24시간 동안 이상이 가장 많이 탐지된 설비는 EQ-003입니다.")
+    assert language_ok("불량(不良) 유형은 burr가 가장 많습니다.")  # 가끔 쓰는 한자어는 허용
+    assert not language_ok("")
+
+
+def test_ids_check_rejects_wrong_or_invented_equipment():
+    from nlq_eval import ids_ok
+    question = "LINE-B 설비들의 최근 1시간 OEE는?"
+    # 2026-09-29 로컬 모델의 실제 답변 (by_line, 실제 LINE-B는 EQ-003뿐)
+    wrong = '등록되지 않은 설비 ID가 있어 조회할 수 없습니다. 등록된 설비 중 LINE-B 설비는 "EQ-001", "EQ-002", "EQ-003"입니다.'
+    assert not ids_ok(wrong, question, ["EQ-003"])
+    assert not ids_ok("EQ-B1의 OEE는 0.8입니다.", question, ["EQ-003"])      # 지어낸 ID
+    assert ids_ok("LINE-B의 포장 설비 1호(EQ-003) OEE는 0.8713입니다.", question, ["EQ-003"])
+    assert ids_ok("EQ-001은 0.9, EQ-003은 0.8입니다.", "오늘 전체 설비 OEE 알려줘", [])  # 전체면 등록된 설비 허용
+    assert ids_ok("EQ-009는 등록되지 않은 설비 ID입니다.", "EQ-009의 오늘 OEE 알려줘", [])  # 질문에 나온 ID 허용

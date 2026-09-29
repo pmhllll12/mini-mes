@@ -11,6 +11,9 @@
 - 답변 문구(answer_mentions_any): 등록되지 않은 설비, 조회 불가 항목, 범위 밖 질문을 추측 없이 안내하는가
 - 단위(units, 불량 집계 질문): 답변의 "숫자+건"/"숫자+개"가 도구 결과의 품질이벤트_건수/불량수량_개와 맞는가.
     불량 수량을 "건"으로, 이벤트 건수를 "개"로 말하면 실패 (두 값이 같으면 어느 쪽도 허용, 숫자가 없으면 통과)
+- 언어(language, 모든 질문): 한국어로 답했는가. 한글이 있고 한자는 한글의 1/5 이하 (중국어 답변 방지)
+- 설비 언급(ids, 설비를 기대하는 질문): 답변에 나온 설비 ID가 기대 설비(전체면 등록된 설비)나 질문에 나온 ID뿐인가.
+    틀린 설비를 해당 설비라고 말하거나 없는 ID를 지어내면 실패
 
 사용법 (API가 키를 갖고 떠 있어야 함):
     python3 evaluate/nlq_eval.py --providers claude gemini --api-url http://localhost:8001
@@ -68,6 +71,24 @@ def truth_from_result(kind: str, result: dict):
     raise ValueError(kind)
 
 
+REGISTERED = {"EQ-001", "EQ-002", "EQ-003"}
+HANGUL = re.compile(r"[가-힣]")
+HAN = re.compile(r"[\u4e00-\u9fff]")
+EQUIPMENT_ID = re.compile(r"\bEQ-[A-Za-z0-9]+")
+
+
+def language_ok(answer: str) -> bool:
+    """한국어 답변인가: 한글이 있고, 한자(중국어)는 한글의 1/5 이하 (가끔 쓰는 한자어는 허용)"""
+    hangul, han = len(HANGUL.findall(answer)), len(HAN.findall(answer))
+    return hangul > 0 and han * 5 <= hangul
+
+
+def ids_ok(answer: str, question: str, expected: list) -> bool:
+    """답변이 언급한 설비 ID가 기대 설비(빈 목록이면 등록된 전체)나 질문에 나온 ID 안에 있는가"""
+    allowed = set(expected or REGISTERED) | set(EQUIPMENT_ID.findall(question))
+    return set(EQUIPMENT_ID.findall(answer)) <= allowed
+
+
 UNIT_NUMBER = re.compile(r"(\d[\d,]*)\s*(건|개)")
 
 
@@ -114,6 +135,9 @@ def grade(item: dict, body: dict, now: datetime) -> dict:
             checks["grounded"] = False
     if "answer_mentions_any" in expect:
         checks["answer"] = any(w in answer for w in expect["answer_mentions_any"])
+    if "equipment_ids" in expect:
+        checks["ids"] = ids_ok(answer, item.get("question", ""), expect["equipment_ids"])
+    checks["language"] = language_ok(answer)
     checks["completed"] = body.get("stop") == "answer"
     return checks
 
@@ -148,7 +172,8 @@ def main():
             body = res.json() if res.headers.get("content-type", "").startswith("application/json") else {}
             checks = grade(item, body, now) if res.status_code == 200 else {"http": False}
             passed = all(v for k, v in checks.items() if not k.startswith("_"))
-            report.append({"provider": provider, "id": item["id"], "status": res.status_code, "passed": passed,
+            report.append({"provider": provider, "id": item["id"], "asked_at": now.isoformat(), "stop": body.get("stop"),
+                           "status": res.status_code, "passed": passed,
                            "checks": checks, "seconds": round(elapsed, 1), "model": body.get("model"),
                            "tools": [(c["name"], c["ok"]) for c in body.get("tool_calls", [])],
                            "tool_calls": body.get("tool_calls", []),  # 채점 규칙을 바꿔도 다시 채점할 수 있게
@@ -156,8 +181,8 @@ def main():
             print(f"[{provider}] {item['id']:<20} {'PASS' if passed else 'FAIL'} {elapsed:5.1f}s "
                   f"{ {k: v for k, v in checks.items() if not k.startswith('_')} }")
 
-    print("\n| 제공자 | 모델 | 통과 | 도구 선택 | 설비 인자 | 기간 인자 | 근거(정답 포함) | 단위 | 안내 문구 | 평균 응답(초) |")
-    print("|---|---|---|---|---|---|---|---|---|---|")
+    print("\n| 제공자 | 모델 | 통과 | 도구 선택 | 설비 인자 | 기간 인자 | 근거(정답 포함) | 단위 | 설비 언급 | 언어 | 안내 문구 | 평균 응답(초) |")
+    print("|---|---|---|---|---|---|---|---|---|---|---|---|")
     for provider in args.providers:
         rows = [r for r in report if r["provider"] == provider]
 
@@ -166,7 +191,7 @@ def main():
             return f"{sum(vals)}/{len(vals)}" if vals else "-"
         model = next((r["model"] for r in rows if r["model"]), "-")
         print(f"| {provider} | {model} | {sum(r['passed'] for r in rows)}/{len(rows)} | {rate('tool')} | {rate('equipment')} | "
-              f"{rate('range')} | {rate('grounded')} | {rate('units')} | {rate('answer')} | {sum(r['seconds'] for r in rows) / len(rows):.1f} |")
+              f"{rate('range')} | {rate('grounded')} | {rate('units')} | {rate('ids')} | {rate('language')} | {rate('answer')} | {sum(r['seconds'] for r in rows) / len(rows):.1f} |")
     if args.out:
         json.dump(report, open(args.out, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
 
