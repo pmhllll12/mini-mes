@@ -10,7 +10,9 @@ anomaly_result에 (equipment_id, ts, anomaly_score, is_anomaly)를 기록한다.
 경보는 두 갈래로 나뉜다.
 - 급변 경보: MODEL_DIR의 모델(v2, 이동 구간 특징 없음). 판정을 anomaly_result에 기록 (/anomalies로 조회).
 - 열화 경보: DRIFT_MODEL_DIR의 모델(train.py --rolling-window, 이동 구간 특징 사용)로 같은 생산실적을 한 번 더 판정.
-  anomaly_result 스키마에 탐지기 구분이 없어 DB에는 쓰지 않고, mes_drift_* 메트릭과 로그(경보 시작/해제)로만 내보낸다.
+  판정 건별 결과는 DB에 쓰지 않고(anomaly_result에 탐지기 구분이 없음) mes_drift_* 메트릭으로 내보내며,
+  경보 시작/해제는 drift_alarm 테이블에 이력으로 남긴다 (/drift-alarms로 조회). 워커가 재시작되면
+  drift_alarm의 진행 중 경보로 경보 상태를 복원한다 (연속 판정 횟수는 0부터 다시 셈).
   열화 모델이 없으면 열화 감시만 건너뛴다 (급변 판정이 된 생산실적만 열화 판정 대상).
   급변 모델이 이상으로 판정한 생산실적은 열화 경보 판단을 보류한다 (경보를 켜는 근거도, 끄는 근거도 아님).
   급변 1건이 열화 경보까지 중복으로 울리지 않게 하고, 급변 탐지기도 잡을 만큼 진행된 열화 후반에
@@ -25,7 +27,16 @@ import time
 import numpy as np
 from prometheus_client import Counter, Gauge, start_http_server
 
-from db import connect, fetch_context_rows, fetch_unscored_rows, insert_results, list_equipment_ids
+from db import (
+    close_drift_alarm,
+    connect,
+    fetch_context_rows,
+    fetch_unscored_rows,
+    insert_results,
+    list_equipment_ids,
+    load_open_drift_alarms,
+    open_drift_alarm,
+)
 from features import build_features
 from model import describe, load_bundle, model_path, score
 
@@ -102,6 +113,11 @@ class DriftAlarm:
         self.active: dict[str, bool] = {}
         self._streak: dict[str, int] = {}  # 현재 상태와 반대인 판정이 연속된 횟수
 
+    def restore(self, active_equipment_ids) -> None:
+        """재시작 시 DB(drift_alarm)의 진행 중 경보로 상태를 되살린다"""
+        for equipment_id in active_equipment_ids:
+            self.active[equipment_id] = True
+
     def update(self, equipment_id: str, flags) -> list[tuple[int, str]]:
         events = []
         state = self.active.get(equipment_id, False)
@@ -137,13 +153,15 @@ def run_drift(conn, equipment_id: str, rows, drift_models: ModelCache, alarm: Dr
     # 급변으로 판정된 구간은 판단 보류(None)
     judgements = [None if s else bool(f) for f, s in zip(flags, spike)]
     for i, kind in alarm.update(equipment_id, judgements):
-        ts = rows[i][0].isoformat(timespec="seconds")
+        ts = rows[i][0]
         if kind == "raised":
+            open_drift_alarm(conn, equipment_id, ts, float(scores[i]), bundle["threshold"])
             DRIFT_ALARM_RAISED.labels(equipment_id).inc()
             log.warning("%s: 열화 경보 시작 (ts=%s, 점수 %.3f > threshold %.3f)",
-                        equipment_id, ts, float(scores[i]), bundle["threshold"])
+                        equipment_id, ts.isoformat(timespec="seconds"), float(scores[i]), bundle["threshold"])
         else:
-            log.info("%s: 열화 경보 해제 (ts=%s)", equipment_id, ts)
+            close_drift_alarm(conn, equipment_id, ts)
+            log.info("%s: 열화 경보 해제 (ts=%s)", equipment_id, ts.isoformat(timespec="seconds"))
     DRIFT_ALARM.labels(equipment_id).set(int(alarm.active[equipment_id]))
 
 
@@ -190,10 +208,17 @@ def main():
         log.info("열화 모델 없음 (%s) - 급변 판정만 수행. 열화 감시는 train.py --rolling-window 5 --model-dir %s로 학습",
                  DRIFT_MODEL_DIR, DRIFT_MODEL_DIR)
     conn = None
+    restored = False
     while True:
         try:
             if conn is None or conn.closed:
                 conn = connect()
+            if not restored:
+                active = load_open_drift_alarms(conn)
+                alarm.restore(active)
+                restored = True
+                if active:
+                    log.info("열화 경보 상태 복원 (진행 중): %s", ", ".join(active))
             run_once(conn, models, drift_models, alarm)
         except Exception:
             log.exception("주기 처리 실패 - 다음 주기에 재시도")

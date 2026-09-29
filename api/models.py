@@ -46,3 +46,14 @@ class AnomalyResult(Base):
     ts = Column(TIMESTAMP(timezone=True), server_default=text("now()"))
     anomaly_score = Column(Numeric(10, 4), nullable=False)
     is_anomaly = Column(Boolean, default=False)
+
+
+class DriftAlarm(Base):
+    __tablename__ = "drift_alarm"
+
+    alarm_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    equipment_id = Column(String(20), ForeignKey("equipment.equipment_id"), nullable=False)
+    raised_ts = Column(TIMESTAMP(timezone=True), nullable=False)
+    raised_score = Column(Numeric(10, 4), nullable=False)
+    threshold = Column(Numeric(10, 4), nullable=False)
+    cleared_ts = Column(TIMESTAMP(timezone=True))

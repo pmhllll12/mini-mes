@@ -40,6 +40,7 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 | GET | `/oee?equipment_ids=&hours=` | 여러 설비(생략 시 전체) OEE 일괄 조회 |
 | GET | `/quality/defect-summary?equipment_ids=&hours=` | 설비별·불량유형별 불량 집계 |
 | GET | `/anomalies?equipment_ids=&hours=` | 여러 설비(생략 시 전체) 이상탐지 결과 일괄 조회 (판정 건수, 이상 건수, 최대 점수, 이상 판정 목록) |
+| GET | `/drift-alarms?equipment_ids=&hours=&format=json\|csv` | 기간과 겹치는 열화 경보 이력 (시작·해제 시각, 진행 중 여부, 지속 시간, 시작 점수), `format=csv`면 바로 내려받기 |
 | GET | `/export/production-logs?equipment_ids=&start=&end=` | 생산실적 CSV 다운로드 |
 | POST | `/query` | 자연어 질의 — LLM이 읽기 전용 도구를 호출해 답변 + 근거(호출한 도구·인자·결과) 반환 (API 키 필요) |
 
@@ -117,7 +118,7 @@ curl "http://localhost:8001/export/production-logs?start=2020-01-01T00:00:00Z" -
 |---|---|---|
 | 잡는 것 | 한 구간에서 크게 튀는 이상 (공구 파손 등) | 여러 구간에 걸쳐 서서히 나빠지는 열화 (마모 등) |
 | 모델 | `/models` — 설비별 Isolation Forest + 범위 이탈 robust z-score (v2), 구간 1건 특징 | `/models/drift` — v2 + 최근 5구간 이동 특징 (`--rolling-window 5`) |
-| 결과 | `anomaly_result`에 기록 → `GET /anomalies` | DB에 쓰지 않음 → `mes_drift_*` 메트릭, 로그 `열화 경보 시작/해제` |
+| 결과 | `anomaly_result`에 기록 → `GET /anomalies` | 경보 시작/해제를 `drift_alarm`에 기록 → `GET /drift-alarms`, 판정 건별 점수는 `mes_drift_*` 메트릭 |
 | Grafana | "이상 점수 추이", "이상 탐지 횟수" | "열화 점수 추이", "열화 경보 상태" |
 
 - 특징: 생산실적 1건당 사이클타임, 구간당 생산 수량(`qty_good+qty_defect`), 불량률. 기준값·threshold는 모두 학습(정상) 데이터의 99% 분위수로 정합니다.
@@ -391,12 +392,12 @@ SERVER_IP=$(terraform output -raw public_ip) GRAFANA_ADMIN_PASSWORD=... ../../k3
 ## 알려진 한계
 
 - 데이터는 시뮬레이터가 만든 가상 데이터이며 실제 설비 데이터가 아닙니다.
-- `db/schema.sql`은 DB 최초 생성 시 한 번만 적용됩니다. 스키마를 바꾸면 `docker compose down -v` 후 다시 띄워야 합니다.
+- `db/schema.sql`은 DB 최초 생성 시 한 번만 적용됩니다. 새 테이블 추가처럼 모든 문장이 `IF NOT EXISTS`인 변경은 `docker compose exec -T db psql -U mes_user -d mini_mes < db/schema.sql`로 기존 DB에 적용할 수 있고, 컬럼 변경 등은 `docker compose down -v` 후 다시 띄워야 합니다 (모델 볼륨도 지워져 재학습 필요). 마이그레이션 도구는 쓰지 않습니다.
 - 이상탐지 관련 (상세는 [이상탐지 문서](docs/anomaly-detection.md#알려진-한계))
   - 성능 수치는 시뮬레이터가 만든 가상 데이터 기준이며, 시뮬레이터의 이상 패턴은 실제 고장 양상보다 단순합니다. 급변 recall 1.000은 쉬운 이상이라 나온 수치입니다.
   - 특징이 단순합니다(생산실적 1건 단위 3개 + 열화용 이동 구간 2개, 센서 데이터 없음). 점진적 열화 초반(진행도 25% 미만)은 거의 잡지 못합니다.
   - 설비별 모델이라 새 설비를 추가하거나 공정 조건이 바뀌면 재학습이 필요하고(자동 재학습 없음), 학습 데이터가 정상인지는 사람이 학습 구간을 지정해서 보장합니다.
-  - 열화 경보는 DB에 남지 않고(스키마 유지) 메트릭으로만 남으며, 열화가 끝난 뒤에도 몇 구간 더 켜져 있습니다.
+  - 열화 경보는 열화가 끝난 뒤에도 몇 구간 더 켜져 있습니다. 경보 시작/해제 이력은 `drift_alarm`에 남지만 판정 건별 열화 점수는 메트릭으로만 남습니다.
   - `anomaly_result`에 생산실적 ID가 없어 `(equipment_id, ts)`로 같은 로그인지 판단합니다.
 - 자연어 질의: 평가는 질문 12개 중 8개만 완료(Gemini 무료 한도), Claude는 미평가입니다. 수치를 단위(건/개)까지 정확히 전하는지는 자동 채점이 확인하지 못합니다. Helm 차트에서는 키를 담은 Secret(`<release>-llm`)을 직접 만들어야 `/query`가 동작합니다.
 - Helm 차트(워커·Prometheus·Grafana 포함)는 k3d 로컬 검증까지만 했습니다 (k3d 기본 local-path 저장소라 PVC도 노드 한 대의 디스크에 있음).

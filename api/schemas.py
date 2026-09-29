@@ -80,6 +80,17 @@ class AnomalySummary(BaseModel):
     anomalies: List[AnomalyPoint]  # is_anomaly = true 인 건 (최신순)
 
 
+class DriftAlarmOut(BaseModel):
+    """열화 경보 1건 (drift_alarm 기준). ts는 경보를 켜고/끈 판정 대상 생산실적의 ts"""
+    equipment_id: str
+    raised_ts: datetime
+    cleared_ts: Optional[datetime]  # null이면 경보 중
+    active: bool
+    duration_sec: Optional[float]   # 해제된 경보만 (raised_ts ~ cleared_ts)
+    raised_score: float             # 경보를 켠 구간의 열화 점수
+    threshold: float
+
+
 class QueryIn(BaseModel):
     """자연어 질의 요청"""
     question: str = Field(min_length=1, max_length=500)

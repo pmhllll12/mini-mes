@@ -101,3 +101,34 @@ def insert_results(conn, equipment_id: str, results) -> int:
             inserted += cur.rowcount
     conn.commit()
     return inserted
+
+
+def load_open_drift_alarms(conn) -> list[str]:
+    """진행 중(cleared_ts IS NULL)인 열화 경보의 설비 - 워커 재시작 시 경보 상태 복원용"""
+    with conn.cursor() as cur:
+        cur.execute("SELECT equipment_id FROM drift_alarm WHERE cleared_ts IS NULL ORDER BY equipment_id")
+        return [r[0] for r in cur.fetchall()]
+
+
+def open_drift_alarm(conn, equipment_id: str, ts: datetime, score: float, threshold: float) -> None:
+    """열화 경보 시작. 같은 설비에 진행 중인 경보가 이미 있으면(재시작 직후 등) 새로 만들지 않는다."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO drift_alarm (equipment_id, raised_ts, raised_score, threshold)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (equipment_id, ts, round(float(score), 4), round(float(threshold), 4)),
+        )
+    conn.commit()
+
+
+def close_drift_alarm(conn, equipment_id: str, ts: datetime) -> None:
+    """진행 중인 열화 경보 해제 (없으면 아무것도 하지 않음)"""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE drift_alarm SET cleared_ts = %s WHERE equipment_id = %s AND cleared_ts IS NULL",
+            (ts, equipment_id),
+        )
+    conn.commit()

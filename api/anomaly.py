@@ -7,10 +7,10 @@ anomaly-worker가 anomaly_result에 기록한 결과를 설비별로 요약한�
 from datetime import datetime
 from typing import List
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from models import AnomalyResult
+from models import AnomalyResult, DriftAlarm
 
 
 def summarize_anomalies(db: Session, equipment_ids: List[str], start: datetime, end: datetime) -> List[dict]:
@@ -56,3 +56,32 @@ def summarize_anomalies(db: Session, equipment_ids: List[str], start: datetime, 
             "anomalies": anomalies[eq_id],
         })
     return result
+
+
+DRIFT_ALARM_CSV_COLUMNS = ["equipment_id", "raised_ts", "cleared_ts", "active", "duration_sec", "raised_score", "threshold"]
+
+
+def list_drift_alarms(db: Session, equipment_ids: List[str], start: datetime, end: datetime) -> List[dict]:
+    """기간과 겹치는 열화 경보 (기간 안에 시작했거나, 기간 시작 시점에 아직 진행 중이던 경보). 설비·시작 시각순"""
+    rows = (
+        db.query(DriftAlarm)
+        .filter(
+            DriftAlarm.equipment_id.in_(equipment_ids),
+            DriftAlarm.raised_ts <= end,
+            or_(DriftAlarm.cleared_ts.is_(None), DriftAlarm.cleared_ts >= start),
+        )
+        .order_by(DriftAlarm.equipment_id, DriftAlarm.raised_ts)
+        .all()
+    )
+    return [
+        {
+            "equipment_id": r.equipment_id,
+            "raised_ts": r.raised_ts,
+            "cleared_ts": r.cleared_ts,
+            "active": r.cleared_ts is None,
+            "duration_sec": (r.cleared_ts - r.raised_ts).total_seconds() if r.cleared_ts else None,
+            "raised_score": float(r.raised_score),
+            "threshold": float(r.threshold),
+        }
+        for r in rows
+    ]

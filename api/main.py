@@ -17,7 +17,7 @@ import models
 import schemas
 from oee import calculate_oee
 from quality import calculate_defect_summary
-from anomaly import summarize_anomalies
+from anomaly import DRIFT_ALARM_CSV_COLUMNS, list_drift_alarms, summarize_anomalies
 from nlq_providers import ClaudeProvider, GeminiProvider, NLQProviderError, user_message
 from nlq_tools import TOOL_NAMES, ToolError, execute_tool
 
@@ -236,6 +236,45 @@ def get_anomalies(
         raise HTTPException(status_code=404, detail="no equipment registered")
 
     return summarize_anomalies(db, targets, start, end)
+
+
+@app.get("/drift-alarms", response_model=List[schemas.DriftAlarmOut])
+def get_drift_alarms(
+    equipment_ids: Optional[List[str]] = Query(
+        None, description="비워두면 등록된 모든 설비를 대상으로 함 (?equipment_ids=EQ-001&equipment_ids=EQ-002)"
+    ),
+    hours: int = 24,
+    format: str = Query("json", pattern="^(json|csv)$", description="csv면 바로 내려받기"),
+    db: Session = Depends(get_db),
+):
+    """최근 N시간과 겹치는 열화 경보 이력 (anomaly-worker가 drift_alarm에 기록).
+    진행 중인 경보는 cleared_ts가 null, active가 true.
+    """
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(hours=hours)
+
+    targets = _resolve_equipment_ids(db, equipment_ids)
+    if not targets:
+        raise HTTPException(status_code=404, detail="no equipment registered")
+
+    alarms = list_drift_alarms(db, targets, start, end)
+    if format == "json":
+        return alarms
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(DRIFT_ALARM_CSV_COLUMNS)
+    for a in alarms:
+        writer.writerow([
+            v.isoformat() if isinstance(v, datetime) else ("" if v is None else v)
+            for v in (a[c] for c in DRIFT_ALARM_CSV_COLUMNS)
+        ])
+    buffer.seek(0)
+    return StreamingResponse(
+        buffer,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=drift_alarms_{start.date()}_{end.date()}.csv"},
+    )
 
 
 # ---------- 자연어 질의 (LLM function calling) ----------

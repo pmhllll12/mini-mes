@@ -49,6 +49,21 @@ CREATE TABLE IF NOT EXISTS anomaly_result (
 CREATE INDEX IF NOT EXISTS idx_anomaly_result_equipment_ts
     ON anomaly_result (equipment_id, ts DESC);
 
+-- 열화 경보 이력 (anomaly-worker가 기록). 경보 1건 = 1행: 시작 시 추가, 해제 시 cleared_ts를 채운다.
+-- raised_ts/cleared_ts = 경보를 켜고/끈 판정 대상 생산실적의 ts. cleared_ts가 NULL이면 경보 중
+CREATE TABLE IF NOT EXISTS drift_alarm (
+    alarm_id        BIGSERIAL PRIMARY KEY,
+    equipment_id    VARCHAR(20) NOT NULL REFERENCES equipment(equipment_id),
+    raised_ts       TIMESTAMPTZ NOT NULL,
+    raised_score    NUMERIC(10,4) NOT NULL,
+    threshold       NUMERIC(10,4) NOT NULL,
+    cleared_ts      TIMESTAMPTZ,
+    UNIQUE (equipment_id, raised_ts)
+);
+-- 설비당 진행 중인 경보는 하나만
+CREATE UNIQUE INDEX IF NOT EXISTS uq_drift_alarm_open
+    ON drift_alarm (equipment_id) WHERE cleared_ts IS NULL;
+
 -- 초기 설비 3대 시드 데이터
 INSERT INTO equipment (equipment_id, name, line_id, status) VALUES
     ('EQ-001', 'CNC 가공기 1호', 'LINE-A', 'idle'),

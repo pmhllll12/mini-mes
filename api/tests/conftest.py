@@ -24,6 +24,7 @@ TRACKED_MODELS = {
     models.ProductionLog: "log_ids",
     models.QualityEvent: "event_ids",
     models.AnomalyResult: "anomaly_result_ids",
+    models.DriftAlarm: "drift_alarm_ids",
 }
 
 
@@ -57,6 +58,7 @@ def _delete_created(created: dict, statuses: dict) -> None:
             created,
         )
         conn.execute(text("DELETE FROM anomaly_result WHERE result_id = ANY(:anomaly_result_ids)"), created)
+        conn.execute(text("DELETE FROM drift_alarm WHERE alarm_id = ANY(:drift_alarm_ids)"), created)
         conn.execute(
             text(
                 "DELETE FROM anomaly_result a USING production_log p "
