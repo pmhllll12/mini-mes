@@ -10,7 +10,7 @@ FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana, GitHub 
 - api/ : FastAPI 앱 (main.py, models.py, schemas.py, oee.py, quality.py, anomaly.py, metrics.py, database.py, report.py 일일 리포트, nlq_tools.py 자연어 질의 읽기 전용 도구, nlq_providers.py Claude·Gemini 어댑터)
 - api/tests/ : pytest 테스트 (Postgres 필요, db/schema.sql 적용된 DB 대상). conftest.py의 autouse fixture가 테스트 프로세스가 넣은 행(after_insert 추적)과 워커가 그 로그를 판정한 결과를 지우고 설비 status를 복원 (KEEP_TEST_DATA=1이면 유지)
 - anomaly-worker/ : 이상탐지 워커 컨테이너 (features.py 특징 추출, model.py 설비별 Isolation Forest + robust z-score 결합(v2, v1 번들도 호환), features.py build_features(--rolling-window 이동 구간 특징, 기본 꺼짐), train.py 학습 CLI, worker.py 주기 추론 + :9100 메트릭 + 급변/열화 경보 분리, db.py). 모델은 anomaly_models 볼륨(/models)에 저장. tests/는 DB 없이 실행
-- evaluate/nlq_eval.py + nlq_questions.json : 자연어 질의 평가(도구 선택·인자·근거·안내 문구). 실제 LLM 호출이라 비용·무료 한도 소모 → 실행 전 사용자 확인
+- evaluate/nlq_eval.py + nlq_questions.json : 자연어 질의 평가(도구 선택·인자·근거·단위·안내 문구, --only로 일부만, --out에 도구 결과까지 저장). 실제 LLM 호출이라 비용·무료 한도 소모 → 실행 전 사용자 확인
 - evaluate/evaluate.py : 시뮬레이터 라벨과 anomaly_result를 (equipment_id, ts)로 매칭해 precision/recall/F1 계산 (anomaly-worker 이미지 안에서 실행). --score-with DIR이면 그 모델로 직접 채점(DB 기록 없음, 모델 비교용), 유형별 recall 출력
 - db/schema.sql : 테이블 정의 + 설비 시드 3개
 - simulator/simulate.py : 가상 설비 데이터 전송기. --labels-file로 이상 여부 라벨(JSONL, run_id 단위, anomaly_type spike/drift)을 남김. --drift-rate로 점진적 열화 모드(기본 0이면 기존과 동일). labels.jsonl은 gitignore

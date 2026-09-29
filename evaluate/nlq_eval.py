@@ -9,6 +9,8 @@
 - 근거(truth): 설비·기간이 맞게 호출된 도구 결과의 정답(최다 불량 유형, 이상 최다 설비)이 답변에 그대로 들어 있는가
     (데이터가 없으면 "없다"고 답해야 함). 도구 결과를 지어내거나 바꿔 말하지 않았는지 확인한다.
 - 답변 문구(answer_mentions_any): 등록되지 않은 설비, 조회 불가 항목, 범위 밖 질문을 추측 없이 안내하는가
+- 단위(units, 불량 집계 질문): 답변의 "숫자+건"/"숫자+개"가 도구 결과의 품질이벤트_건수/불량수량_개와 맞는가.
+    불량 수량을 "건"으로, 이벤트 건수를 "개"로 말하면 실패 (두 값이 같으면 어느 쪽도 허용, 숫자가 없으면 통과)
 
 사용법 (API가 키를 갖고 떠 있어야 함):
     python3 evaluate/nlq_eval.py --providers claude gemini --api-url http://localhost:8001
@@ -16,10 +18,9 @@
 import argparse
 import json
 import os
+import re
 import time
 from datetime import datetime, timedelta, timezone
-
-import requests
 
 KST = timezone(timedelta(hours=9), "KST")
 TOLERANCE = timedelta(minutes=10)
@@ -61,6 +62,23 @@ def truth_from_result(kind: str, result: dict):
     raise ValueError(kind)
 
 
+UNIT_NUMBER = re.compile(r"(\d[\d,]*)\s*(건|개)")
+
+
+def units_ok(answer: str, rows: list) -> bool:
+    """답변의 숫자+단위가 불량 집계 결과의 이벤트 건수(건)·불량 수량(개)과 어긋나지 않는가.
+    한쪽 값에만 있는 숫자에 다른 쪽 단위를 붙이면 실패. 결과에 없는 숫자(다른 계산 등)는 판단하지 않는다."""
+    events = {r["품질이벤트_건수"] for r in rows}
+    qtys = {r["불량수량_개"] for r in rows}
+    for number, unit in UNIT_NUMBER.findall(answer):
+        n = int(number.replace(",", ""))
+        if unit == "건" and n in qtys and n not in events:
+            return False
+        if unit == "개" and n in events and n not in qtys:
+            return False
+    return True
+
+
 def grade(item: dict, body: dict, now: datetime) -> dict:
     expect = item["expect"]
     calls = body.get("tool_calls", [])
@@ -82,6 +100,8 @@ def grade(item: dict, body: dict, now: datetime) -> dict:
             truth = truth_from_result(expect["truth"], correct[-1]["result"])
             checks["grounded"] = (truth in answer) if truth else any(w in answer for w in NO_DATA_WORDS)
             checks["_truth"] = truth
+            if expect["truth"] == "top_defect_type":
+                checks["units"] = units_ok(answer, correct[-1]["result"].get("results", []))
         else:
             checks["grounded"] = False
     if "answer_mentions_any" in expect:
@@ -99,6 +119,7 @@ def main():
     parser.add_argument("--delay", type=float, default=0, help="질문 사이 대기(초) - 무료 등급의 분당 요청 한도 대응")
     parser.add_argument("--only", nargs="+", default=None, help="이 id의 질문만 평가 - 무료 등급 하루 한도 안에서 나눠 평가")
     args = parser.parse_args()
+    import requests  # 실제 호출할 때만 필요 (채점 함수 단위 테스트는 requests 없이)
 
     items = json.load(open(args.questions, encoding="utf-8"))
     if args.only:
@@ -122,12 +143,13 @@ def main():
             report.append({"provider": provider, "id": item["id"], "status": res.status_code, "passed": passed,
                            "checks": checks, "seconds": round(elapsed, 1), "model": body.get("model"),
                            "tools": [(c["name"], c["ok"]) for c in body.get("tool_calls", [])],
+                           "tool_calls": body.get("tool_calls", []),  # 채점 규칙을 바꿔도 다시 채점할 수 있게
                            "answer": body.get("answer", body.get("detail"))})
             print(f"[{provider}] {item['id']:<20} {'PASS' if passed else 'FAIL'} {elapsed:5.1f}s "
                   f"{ {k: v for k, v in checks.items() if not k.startswith('_')} }")
 
-    print("\n| 제공자 | 모델 | 통과 | 도구 선택 | 설비 인자 | 기간 인자 | 근거(정답 포함) | 안내 문구 | 평균 응답(초) |")
-    print("|---|---|---|---|---|---|---|---|---|")
+    print("\n| 제공자 | 모델 | 통과 | 도구 선택 | 설비 인자 | 기간 인자 | 근거(정답 포함) | 단위 | 안내 문구 | 평균 응답(초) |")
+    print("|---|---|---|---|---|---|---|---|---|---|")
     for provider in args.providers:
         rows = [r for r in report if r["provider"] == provider]
 
@@ -136,7 +158,7 @@ def main():
             return f"{sum(vals)}/{len(vals)}" if vals else "-"
         model = next((r["model"] for r in rows if r["model"]), "-")
         print(f"| {provider} | {model} | {sum(r['passed'] for r in rows)}/{len(rows)} | {rate('tool')} | {rate('equipment')} | "
-              f"{rate('range')} | {rate('grounded')} | {rate('answer')} | {sum(r['seconds'] for r in rows) / len(rows):.1f} |")
+              f"{rate('range')} | {rate('grounded')} | {rate('units')} | {rate('answer')} | {sum(r['seconds'] for r in rows) / len(rows):.1f} |")
     if args.out:
         json.dump(report, open(args.out, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
 
