@@ -54,7 +54,7 @@ def truth_from_result(kind: str, result: dict):
     """올바른 설비·기간으로 호출된 도구 결과에서 정답을 뽑는다. 데이터가 없으면 None."""
     rows = result.get("results", [])
     if kind == "top_defect_type":
-        return max(rows, key=lambda r: (r["event_count"], r["total_qty_defect"]))["defect_type"] if rows else None
+        return max(rows, key=lambda r: (r["품질이벤트_건수"], r["불량수량_개"]))["defect_type"] if rows else None
     if kind == "top_anomaly_equipment":
         rows = [r for r in rows if r["anomaly_count"] > 0]
         return max(rows, key=lambda r: r["anomaly_count"])["equipment_id"] if rows else None

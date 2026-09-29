@@ -51,6 +51,23 @@ def test_tool_rejects_invalid_arguments(db, args, message):
         execute_tool(db, "get_defect_summary", args)
 
 
+def test_defect_summary_tool_labels_units(db):
+    """불량 수량(개)을 건수로 말하던 문제로, 도구 결과 필드 이름에 단위를 드러낸다 (조회 API 형식은 그대로)"""
+    import models
+    log = models.ProductionLog(equipment_id="EQ-002", ts=NOW - timedelta(hours=1), qty_good=0, qty_defect=3,
+                               cycle_time_sec=10, planned_time_sec=60)
+    db.add(log)
+    db.flush()
+    db.add(models.QualityEvent(equipment_id="EQ-002", ts=NOW - timedelta(hours=1), defect_type="burr",
+                               production_log_id=log.log_id))
+    db.commit()
+
+    rows = execute_tool(db, "get_defect_summary", {"equipment_ids": ["EQ-002"], **RANGE})["results"]
+    burr = next(r for r in rows if r["defect_type"] == "burr")
+    assert set(burr) == {"equipment_id", "defect_type", "품질이벤트_건수", "불량수량_개"}
+    assert (burr["품질이벤트_건수"], burr["불량수량_개"]) >= (1, 3)
+
+
 def test_unknown_tool_is_rejected(db):
     with pytest.raises(ToolError, match="알 수 없는 도구"):
         execute_tool(db, "drop_table", {})

@@ -64,7 +64,8 @@ TOOL_SPECS: List[dict] = [
     },
     {
         "name": "get_defect_summary",
-        "description": "기간 내 설비별·불량유형별 불량 집계(품질 이벤트 건수, 불량 수량 합)를 조회한다. "
+        "description": "기간 내 설비별·불량유형별 불량 집계를 조회한다. 결과의 품질이벤트_건수(단위 건)와 "
+                       "불량수량_개(단위 개, 이벤트에 연결된 생산실적의 불량 수량 합)는 서로 다른 값이다. "
                        "불량 유형: scratch, dimension_out, burr, discoloration.",
         "parameters": _range_schema(),
     },
@@ -132,7 +133,18 @@ def _get_oee(db: Session, args: dict) -> dict:
 def _get_defect_summary(db: Session, args: dict) -> dict:
     start, end = _parse_range(args)
     targets = _resolve_equipment(db, args.get("equipment_ids"))
-    return {"start": start, "end": end, "results": calculate_defect_summary(db, targets, start, end)}
+    # LLM이 불량 수량(개)을 건수로 말하던 문제(평가 defect_top_today)로, 필드 이름에 단위를 드러낸다.
+    # 조회 API(/quality/defect-summary)의 응답 형식은 그대로 둔다
+    rows = [
+        {
+            "equipment_id": r["equipment_id"],
+            "defect_type": r["defect_type"],
+            "품질이벤트_건수": r["event_count"],
+            "불량수량_개": r["total_qty_defect"],
+        }
+        for r in calculate_defect_summary(db, targets, start, end)
+    ]
+    return {"start": start, "end": end, "results": rows}
 
 
 def _get_anomalies(db: Session, args: dict) -> dict:

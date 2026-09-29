@@ -3,7 +3,7 @@
 제조 설비의 생산실적·가동률(OEE)·품질 이력을 수집하고 집계하는 미니 MES(Manufacturing Execution System) 개인 프로젝트입니다.
 Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단계적으로 고도화하며 만들고 있습니다.
 
-> **현재 상태:** 7주차 진행 중 (핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링·Discord 알림, GitHub Actions CI, Helm 차트 + k3d 로컬 검증, 이상탐지 워커 + 가상 데이터 기준 성능 평가, 자연어 질의 API — Gemini 12/12 통과·건수/수량 혼동 남음, Claude 미평가, 예약 리포트).
+> **현재 상태:** 7주차 진행 중 (핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링·Discord 알림, GitHub Actions CI, Helm 차트 + k3d 로컬 검증, 이상탐지 워커 + 가상 데이터 기준 성능 평가, 자연어 질의 API — Gemini 12/12 통과, Claude 미평가, 예약 리포트).
 > 7주차: K3s 서버는 Oracle Cloud 상시 무료 ARM VM(오사카)으로 정하고 Terraform 코드를 작성했습니다. 네트워크는 생성됐지만 VM은 무료 ARM 재고 부족("Out of host capacity")으로 아직 생성 대기 중입니다.
 
 프로젝트 소개 페이지(GitHub Pages, Jekyll): https://pmhllll12.github.io/mini-mes/ — 소스는 `docs/` (로컬 미리보기: `cd docs && jekyll serve --port 4002` → http://localhost:4002/mini-mes/)
@@ -212,7 +212,7 @@ curl -X POST http://localhost:8001/query -H 'Content-Type: application/json' \
 | Claude · `claude-opus-5` | 미평가 (API 크레딧 없음) | | | | | | | |
 
 - 무료 한도 때문에 세 번에 나눠 평가(09-28 8개, 09-29 4개, 실행마다 데이터 다름). 없는 설비는 도구 실패 후 "등록되지 않은 설비"로 안내, 범위 밖 예측 질문은 도구 없이 거절.
-- **건수·수량 혼동이 남음:** "오늘 EQ-002 최다 불량"에 불량 수량(125개)을 "125건"이라고 답함 (실제 이벤트 119건). 시스템 프롬프트에 "건수와 수량 구분"을 넣은 뒤 재확인했지만 그대로여서, 프롬프트 문구만으로는 해결되지 않음. 자동 채점은 이 오류를 잡지 못함
+- **건수·수량 혼동 → 수정:** "오늘 EQ-002 최다 불량"에 불량 수량(125개)을 "125건"이라고 답하던 오류가 09-28·09-29 두 번 재현됨. 도구 결과 필드 이름을 `품질이벤트_건수`·`불량수량_개`로 바꾼 뒤 새 데이터로 2회 실행해 두 번 모두 "127개"로 맞게 답함 (DB: 121건·127개). 소수 실행이라 개선의 근거 수준이고, 자동 채점은 아직 단위를 확인하지 못함
 - 답변 수치를 조회 API로 직접 대조: "최근 24시간 이상 최다 설비 EQ-003, 626건"은 일치. "오늘 EQ-002 최다 불량 dimension_out 217건, scratch도 217건으로 동일"은 **217이 불량 수량(개)인데 건수처럼 표현**했고 실제 이벤트 건수는 213 vs 204라 동률이 아님 — 자동 채점(정답 유형 포함 여부)은 통과했지만 수치 표현은 부정확했습니다.
 - 실제 API 호출로 발견해 고친 점: Gemini에 함수 결과를 `role="tool"`로 보내면 400(SDK README 예제와 다름) → `role="user"`로 전송, 일시 과부하(503) 대비 재시도.
 
@@ -413,7 +413,7 @@ SERVER_IP=$(terraform output -raw public_ip) GRAFANA_ADMIN_PASSWORD=... ../../k3
 | 3주 | Prometheus + Grafana 모니터링 스택 추가 (`/metrics`, 대시보드 프로비저닝) | ✅ |
 | 4주 | Helm 차트 작성 + k3d 로컬 검증 (Secret/PVC/probe, 서버 배포 대상은 미정). 5주차 이후 anomaly-worker(Deployment·모델 PVC·메트릭 Service), Prometheus·Grafana도 차트에 추가 | ✅ |
 | 5주 | 이상탐지(예지보전) 워커: 설비별 Isolation Forest + robust z-score(정상 데이터만 학습), `/anomalies` API, 급변·열화 경보 분리, 워커 메트릭·Grafana 패널, 시뮬레이터 라벨 기반 성능 평가(가상 데이터 기준 급변 F1 v1 0.525 → v2 0.959), 워커 단위 테스트·CI | ✅ |
-| 6주 | 자연어 질의 API(`POST /query`, Claude·Gemini function calling, 읽기 전용 도구 4개, 근거 반환), 평가 스크립트 — Gemini 12/12 통과(건수·수량 혼동 남음), Claude 미평가 | ✅ |
+| 6주 | 자연어 질의 API(`POST /query`, Claude·Gemini function calling, 읽기 전용 도구 4개, 근거 반환), 평가 스크립트 — Gemini 12/12 통과(건수·수량 혼동은 도구 필드 이름 수정 후 2회 확인), Claude 미평가 | ✅ |
 | 7주 | Terraform(Oracle Cloud: VCN·보안 목록·A1 VM + cloud-init K3s), CI에서 amd64/arm64 이미지를 GHCR에 푸시·Terraform 검사, 문서화·데모 영상 — VM은 재고 부족으로 생성 대기 | 진행 중 |
 
 ## 알려진 한계
@@ -426,7 +426,7 @@ SERVER_IP=$(terraform output -raw public_ip) GRAFANA_ADMIN_PASSWORD=... ../../k3
   - 설비별 모델이라 새 설비를 추가하거나 공정 조건이 바뀌면 재학습이 필요하고(자동 재학습 없음), 학습 데이터가 정상인지는 사람이 학습 구간을 지정해서 보장합니다.
   - 열화 경보는 열화가 끝난 뒤에도 몇 구간 더 켜져 있습니다. 경보 시작/해제 이력은 `drift_alarm`에 남지만 판정 건별 열화 점수는 메트릭으로만 남습니다.
   - `anomaly_result`에 생산실적 ID가 없어 `(equipment_id, ts)`로 같은 로그인지 판단합니다.
-- 자연어 질의: 평가는 질문 12개(Gemini, 세 번에 나눠 실행)뿐이고 Claude는 미평가입니다. 불량 수량(개)을 건수로 말하는 오류가 남아 있고(프롬프트 수정으로 해결 안 됨), 자동 채점은 단위까지 확인하지 못합니다. Helm 차트에서는 키를 담은 Secret(`<release>-llm`)을 직접 만들어야 `/query`가 동작합니다.
+- 자연어 질의: 평가는 질문 12개(Gemini, 세 번에 나눠 실행)뿐이고 Claude는 미평가입니다. 불량 수량(개)을 건수로 말하던 오류는 도구 필드 이름 수정 후 2회 확인 수준이고, 자동 채점은 단위까지 확인하지 못합니다. Helm 차트에서는 키를 담은 Secret(`<release>-llm`)을 직접 만들어야 `/query`가 동작합니다.
 - Helm 차트(워커·Prometheus·Grafana 포함)는 k3d 로컬 검증까지만 했습니다 (k3d 기본 local-path 저장소라 PVC도 노드 한 대의 디스크에 있음).
 
 ## 개발 기간
