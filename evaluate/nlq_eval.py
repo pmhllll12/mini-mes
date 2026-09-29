@@ -97,9 +97,15 @@ def main():
     parser.add_argument("--questions", default=os.path.join(os.path.dirname(__file__), "nlq_questions.json"))
     parser.add_argument("--out", default=None, help="질문별 응답·채점 결과를 JSON으로 저장할 경로")
     parser.add_argument("--delay", type=float, default=0, help="질문 사이 대기(초) - 무료 등급의 분당 요청 한도 대응")
+    parser.add_argument("--only", nargs="+", default=None, help="이 id의 질문만 평가 - 무료 등급 하루 한도 안에서 나눠 평가")
     args = parser.parse_args()
 
     items = json.load(open(args.questions, encoding="utf-8"))
+    if args.only:
+        unknown = set(args.only) - {item["id"] for item in items}
+        if unknown:
+            parser.error(f"없는 질문 id: {', '.join(sorted(unknown))}")
+        items = [item for item in items if item["id"] in args.only]
     report = []
     for provider in args.providers:
         for i, item in enumerate(items):
