@@ -1,0 +1,16 @@
+# Oracle Cloud K3s 서버용 values - 차트 기본값(k3d 로컬 이미지) 위에 덮어쓴다
+# 이미지는 CI가 main 푸시 때 GHCR에 올린 amd64/arm64 멀티아키텍처 이미지
+image:
+  repository: ghcr.io/pmhllll12/mini-mes-api
+  tag: latest
+  pullPolicy: Always
+
+anomalyWorker:
+  image:
+    repository: ghcr.io/pmhllll12/mini-mes-anomaly-worker
+    tag: latest
+    pullPolicy: Always
+
+nlq:
+  geminiModel: gemini-2.5-flash
+# Grafana 관리자 비밀번호는 deploy.sh가 GRAFANA_ADMIN_PASSWORD로 넘긴다 (여기 두지 않음)

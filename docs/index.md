@@ -13,7 +13,7 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 - 자연어 질의 설계와 평가: [자연어 질의]({{ '/nlq/' | relative_url }})
 
 > **현재 상태:** 6주차 진행 중 — 핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링, GitHub Actions CI, Helm 차트 + k3d 로컬 검증, 이상탐지 워커 + 가상 데이터 기준 성능 평가, 자연어 질의 API(Gemini로 부분 평가, Claude 미평가).
-> Terraform은 아직 구현 전이며, K3s 서버 배포 대상도 아직 정하지 않았습니다.
+> 7주차: K3s 서버는 Oracle Cloud 상시 무료 ARM VM(오사카)으로 정하고 Terraform 코드를 작성했습니다. 네트워크는 생성됐지만 VM은 무료 ARM 재고 부족("Out of host capacity")으로 아직 생성 대기 중입니다.
 
 ## 배경
 
@@ -73,7 +73,7 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 ## 기술 스택
 
 - 현재: Python, FastAPI, SQLAlchemy, PostgreSQL 16, Docker Compose, Prometheus, Grafana, GitHub Actions, Helm/k3d(로컬 검증), scikit-learn(Isolation Forest)
-- 예정: Terraform, K3s 서버 배포, Gemini(function calling)
+- 예정: Oracle Cloud K3s 서버 배포 (Terraform 작성, VM 생성 대기)
 
 ## 로드맵
 
@@ -85,4 +85,4 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 | 4주 | Helm 차트 + k3d 로컬 검증 | ✅ |
 | 5주 | 이상탐지(예지보전) 워커, `/anomalies` API, 워커 메트릭·Grafana 패널, 라벨 기반 성능 평가, CI | ✅ |
 | 6주 | 자연어 질의 API (Claude·Gemini function calling) — Gemini 8/12 평가 완료, Claude 미평가 | 진행 중 |
-| 7주 | Terraform, 문서화·데모 영상 | |
+| 7주 | Terraform(Oracle Cloud), GHCR 멀티아키텍처 이미지, 문서화·데모 영상 | 진행 중 |

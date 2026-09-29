@@ -4,7 +4,7 @@
 Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단계적으로 고도화하며 만들고 있습니다.
 
 > **현재 상태:** 6주차 진행 중 (핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링, GitHub Actions CI, Helm 차트 + k3d 로컬 검증, 이상탐지 워커 + 가상 데이터 기준 성능 평가, 자연어 질의 API — Gemini로 부분 평가, Claude 미평가).
-> Terraform은 아직 구현 전이며, K3s 서버 배포 대상도 아직 정하지 않았습니다.
+> 7주차: K3s 서버는 Oracle Cloud 상시 무료 ARM VM(오사카)으로 정하고 Terraform 코드를 작성했습니다. 네트워크는 생성됐지만 VM은 무료 ARM 재고 부족("Out of host capacity")으로 아직 생성 대기 중입니다.
 
 프로젝트 소개 페이지(GitHub Pages, Jekyll): https://pmhllll12.github.io/mini-mes/ — 소스는 `docs/` (로컬 미리보기: `cd docs && jekyll serve --port 4002` → http://localhost:4002/mini-mes/)
 
@@ -339,10 +339,34 @@ minikube를 쓴다면 2)의 `k3d image import` 대신 `minikube image load mini-
 - 정적 검증: `helm lint` 통과, 렌더링된 리소스 19개 kubeconform(strict) 통과 (Prometheus PVC 끄면 18개, `monitoring.enabled=false`면 10개)
 - 자연어 질의 키(차트 0.4.0): api 컨테이너가 `<release>-llm` Secret(`nlq.existingSecret`로 변경 가능)의 `ANTHROPIC_API_KEY`·`GEMINI_API_KEY`를 `optional` 참조 — Secret이 없으면 api는 정상 동작하고 `/query`만 503. 제공자·모델은 `nlq.provider`, `nlq.claudeModel`, `nlq.geminiModel`. k3d 확인: Secret 없이 파드 5개 재시작 0회·`/health` 200·`/query` 503 → `.env`로 Secret 생성·api 재시작 후 파드에 `GEMINI_API_KEY` 주입(값은 출력하지 않고 길이만 확인), `/query`가 Gemini까지 도달(당일 무료 한도 소진으로 429 응답 — 답변 생성까지는 미확인)
 
+## Oracle Cloud K3s 배포 (Terraform, 진행 중)
+
+K3s 서버는 Oracle Cloud 상시 무료 ARM VM(A1.Flex, 오사카 `ap-osaka-1`)에 올립니다. `infra/terraform/oci/`가 VCN·인터넷 게이트웨이·서브넷·보안 목록·VM을 만들고, cloud-init이 K3s를 설치합니다.
+
+- **외부 노출 최소화:** 보안 목록 인바운드는 SSH(22)를 내 IP(`allowed_ssh_cidr`, `0.0.0.0/0`은 validation으로 거부)에만 허용합니다. K3s API·api·Grafana는 열지 않고 SSH 터널로 접속합니다. `/query`를 공개하면 LLM 한도가 남용될 수 있어 공개 여부는 따로 정합니다.
+- **Oracle Ubuntu 이미지의 iptables:** 기본 규칙이 22 외 INPUT과 모든 FORWARD를 REJECT해 파드 네트워크가 막히므로, cloud-init에서 REJECT 규칙만 지웁니다 (외부 방화벽은 보안 목록이 담당).
+- **이미지:** VM이 ARM이라 CI가 main 푸시 때 `ghcr.io/pmhllll12/mini-mes-{api,anomaly-worker}`를 amd64/arm64로 빌드해 올립니다 (`sha-<커밋>`, `latest` 태그). 서버용 values는 `infra/k3s/values-oci.yaml`.
+- **자격 증명:** OCI API 키는 `~/.oci/config`에서 읽고, `terraform.tfvars`·state·kubeconfig는 gitignore.
+
+```bash
+cd infra/terraform/oci
+cp terraform.tfvars.example terraform.tfvars   # tenancy_ocid, allowed_ssh_cidr(내 IP/32) 입력
+terraform init
+terraform plan -out=tfplan && terraform apply tfplan
+# 무료 ARM 재고 부족("Out of host capacity")이면 5분 간격 재시도 (다른 오류는 즉시 중단)
+TF_VAR_ocpus=1 TF_VAR_memory_gb=6 ./retry-apply.sh
+
+# 배포: 터널을 켜 둔 채 (terraform output kube_tunnel)
+ssh -N -L 16443:127.0.0.1:6443 ubuntu@$(terraform output -raw public_ip)
+SERVER_IP=$(terraform output -raw public_ip) GRAFANA_ADMIN_PASSWORD=... ../../k3s/deploy.sh
+```
+
+**현재 상태 (2026-09-29):** `plan` 6개 중 네트워크 5개 생성, VM은 오사카 A1 재고 부족(`500-InternalError, Out of host capacity`)으로 실패해 재시도 대기 중. 서버 배포 결과는 VM 생성 후 기록합니다.
+
 ## 기술 스택
 
-- 현재: Python, FastAPI, SQLAlchemy, PostgreSQL 16, Docker Compose, Prometheus, Grafana, GitHub Actions, Helm/k3d(로컬 검증), scikit-learn(Isolation Forest), Claude·Gemini API(function calling)
-- 예정: Terraform, K3s 서버 배포
+- 현재: Python, FastAPI, SQLAlchemy, PostgreSQL 16, Docker Compose, Prometheus, Grafana, GitHub Actions(GHCR 멀티아키텍처 이미지), Helm/k3d(로컬 검증), scikit-learn(Isolation Forest), Claude·Gemini API(function calling), Terraform(OCI)
+- 예정: Oracle Cloud K3s 서버 배포 (VM 생성 대기)
 
 ## 로드맵
 
@@ -354,7 +378,7 @@ minikube를 쓴다면 2)의 `k3d image import` 대신 `minikube image load mini-
 | 4주 | Helm 차트 작성 + k3d 로컬 검증 (Secret/PVC/probe, 서버 배포 대상은 미정). 5주차 이후 anomaly-worker(Deployment·모델 PVC·메트릭 Service), Prometheus·Grafana도 차트에 추가 | ✅ |
 | 5주 | 이상탐지(예지보전) 워커: 설비별 Isolation Forest + robust z-score(정상 데이터만 학습), `/anomalies` API, 급변·열화 경보 분리, 워커 메트릭·Grafana 패널, 시뮬레이터 라벨 기반 성능 평가(가상 데이터 기준 급변 F1 v1 0.525 → v2 0.959), 워커 단위 테스트·CI | ✅ |
 | 6주 | 자연어 질의 API(`POST /query`, Claude·Gemini function calling, 읽기 전용 도구 4개, 근거 반환), 평가 스크립트 — Gemini 8/12 평가 완료(8/8 통과), Claude 미평가 | 진행 중 |
-| 7주 | Terraform, 문서화·데모 영상 (GitHub Actions CI는 완료) | |
+| 7주 | Terraform(Oracle Cloud: VCN·보안 목록·A1 VM + cloud-init K3s), CI에서 amd64/arm64 이미지를 GHCR에 푸시·Terraform 검사, 문서화·데모 영상 — VM은 재고 부족으로 생성 대기 | 진행 중 |
 
 ## 알려진 한계
 

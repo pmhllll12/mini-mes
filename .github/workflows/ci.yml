@@ -93,14 +93,61 @@ jobs:
           helm template mini-mes charts/mini-mes --set monitoring.enabled=false --set anomalyWorker.enabled=false > /dev/null
           helm template mini-mes charts/mini-mes --set monitoring.prometheus.persistence.enabled=false > /dev/null
 
-  docker-build:
+  terraform:
     runs-on: ubuntu-24.04
-    needs: [test, anomaly-worker-test, chart]
     steps:
       - uses: actions/checkout@v7
 
-      - name: Build API image
-        run: docker build -t mini-mes-api:ci ./api
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.16.4
 
-      - name: Build anomaly-worker image
-        run: docker build -t mini-mes-anomaly-worker:ci ./anomaly-worker
+      # 자격 증명 없이 문법·구성만 검사 (plan/apply는 로컬에서)
+      - name: Terraform fmt and validate
+        working-directory: infra/terraform/oci
+        run: |
+          terraform fmt -check -recursive
+          terraform init -backend=false -input=false
+          terraform validate
+
+  docker-build:
+    runs-on: ubuntu-24.04
+    needs: [test, anomaly-worker-test, chart]
+    # main 푸시 때만 GHCR에 올린다 (PR은 빌드만 확인). 서버(Oracle Cloud A1)가 ARM이라 amd64·arm64 둘 다 빌드
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        image: [api, anomaly-worker]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        if: github.event_name == 'push'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/mini-mes-${{ matrix.image }}
+          tags: |
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build (and push on main) ${{ matrix.image }} image
+        uses: docker/build-push-action@v7
+        with:
+          context: ./${{ matrix.image }}
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name == 'push' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}

@@ -8,3 +8,10 @@ report.csv
 simulator/labels.jsonl
 docs/_site/
 docs/.jekyll-cache/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+infra/k3s/kubeconfig
+tfplan

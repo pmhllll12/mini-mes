@@ -1,0 +1,7 @@
+# cp terraform.tfvars.example terraform.tfvars (terraform.tfvars는 gitignore)
+tenancy_ocid     = "ocid1.tenancy.oc1..xxxx"
+region           = "ap-osaka-1" # 가입 시 고른 홈 리전 (Japan Central)
+allowed_ssh_cidr = "203.0.113.10/32" # curl -s https://checkip.amazonaws.com 결과 + /32
+# ssh_public_key_path = "~/.ssh/id_ed25519.pub"
+# ocpus = 2
+# memory_gb = 12
