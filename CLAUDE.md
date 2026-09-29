@@ -14,11 +14,11 @@ FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana, GitHub 
 - evaluate/evaluate.py : 시뮬레이터 라벨과 anomaly_result를 (equipment_id, ts)로 매칭해 precision/recall/F1 계산 (anomaly-worker 이미지 안에서 실행). --score-with DIR이면 그 모델로 직접 채점(DB 기록 없음, 모델 비교용), 유형별 recall 출력
 - db/schema.sql : 테이블 정의 + 설비 시드 3개
 - simulator/simulate.py : 가상 설비 데이터 전송기. --labels-file로 이상 여부 라벨(JSONL, run_id 단위, anomaly_type spike/drift)을 남김. --drift-rate로 점진적 열화 모드(기본 0이면 기존과 동일). labels.jsonl은 gitignore
-- monitoring/ : Prometheus 스크레이프 설정(api, anomaly-worker), Grafana 데이터소스·대시보드 프로비저닝
+- monitoring/ : Prometheus 스크레이프 설정(api, anomaly-worker), Grafana 데이터소스·대시보드·알림(provisioning/alerting/alerting.yml: 규칙 4개 + Discord, URL은 DISCORD_WEBHOOK_URL, 없으면 .invalid 기본값) 프로비저닝. 알림 문구 템플릿은 $ 하나로 ($$는 그대로 남음)
 - .github/workflows/ci.yml : push/PR 시 lint(ruff)·API 테스트·워커/평가 단위 테스트·차트(복사본 동기화 diff, helm lint/template)·Terraform fmt/validate·API/워커 amd64+arm64 빌드(main 푸시 때만 GHCR 푸시)
 - docs/ : GitHub Pages(Jekyll, minima 테마) 소개 사이트 (index.md 개요, anomaly-detection.md 이상탐지 상세 기록: 평가 절차·모델별 비교·C안·경보 분리 전체 표, nlq.md 자연어 질의 설계·평가·발견한 문제, infra.md 배포 구성·보안 설계·CI/CD·검증 기록). README는 요약·실행법·현재 결과만 두고 상세는 docs로. 수치·로드맵을 바꾸면 README·docs 함께 갱신
 - infra/terraform/oci/ : Oracle Cloud(오사카 ap-osaka-1, 상시 무료 A1 ARM) VCN·보안 목록(SSH만, 내 IP)·VM + cloud-init K3s. 인증은 ~/.oci/config, terraform.tfvars·state는 gitignore. retry-apply.sh는 A1 재고 부족 시 재시도. infra/k3s/ : 서버용 values-oci.yaml(GHCR 이미지)·deploy.sh(SSH 터널 16443 경유 helm)
-- charts/mini-mes/ : api·db·anomaly-worker(모델 PVC, 메트릭 Service)·Prometheus·Grafana(monitoring.enabled) Helm 차트. LLM 키는 values에 넣지 않고 <release>-llm Secret을 optional 참조(nlq.existingSecret, kubectl create secret generic mini-mes-llm --from-env-file=.env) (k3d/minikube 로컬 검증, 서버 배포는 infra/k3s/values-oci.yaml로 덮어씀). files/schema.sql, files/grafana-dashboard.json은 db/schema.sql, monitoring/grafana/dashboards/mini-mes.json 복사본 → 원본 수정 시 같이 수정 (CI chart 작업이 diff로 검사)
+- charts/mini-mes/ : api·db·anomaly-worker(모델 PVC, 메트릭 Service)·Prometheus·Grafana(monitoring.enabled) Helm 차트. LLM 키는 values에 넣지 않고 <release>-llm Secret을 optional 참조(nlq.existingSecret, kubectl create secret generic mini-mes-llm --from-env-file=.env) (k3d/minikube 로컬 검증, 서버 배포는 infra/k3s/values-oci.yaml로 덮어씀). files/schema.sql, files/grafana-dashboard.json, files/grafana-alerting.yml은 db/schema.sql, monitoring/grafana/dashboards/mini-mes.json, monitoring/grafana/provisioning/alerting/alerting.yml 복사본 → 원본 수정 시 같이 수정 (CI chart 작업이 diff로 검사)
 
 ## 로컬 실행 주의
 - API 포트는 호스트 8001 (8000은 WSL의 다른 프로세스가 사용 중)

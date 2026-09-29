@@ -27,6 +27,12 @@ fi
 # LLM 키: 루트 .env가 있으면 Secret으로 (없으면 /query만 503)
 if [[ -f "$ROOT/.env" ]]; then
   "${KUBECTL[@]}" create secret generic mini-mes-llm --from-env-file="$ROOT/.env" --dry-run=client -o yaml | "${KUBECTL[@]}" apply -f -
+  # 알림 웹훅: .env에 값이 있을 때만 (없으면 Grafana 기본값 - 발송만 실패)
+  WEBHOOK="$(grep -E '^DISCORD_WEBHOOK_URL=.+' "$ROOT/.env" | cut -d= -f2- || true)"
+  if [[ -n "$WEBHOOK" ]]; then
+    "${KUBECTL[@]}" create secret generic mini-mes-alerting --from-literal=DISCORD_WEBHOOK_URL="$WEBHOOK" \
+      --dry-run=client -o yaml | "${KUBECTL[@]}" apply -f -
+  fi
 fi
 
 "${HELM[@]}" upgrade --install mini-mes "$ROOT/charts/mini-mes" \

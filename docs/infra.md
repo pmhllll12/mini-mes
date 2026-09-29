@@ -63,6 +63,7 @@ PC ─ ssh :22 (my IP/32 only) ─→ OCI ap-osaka-1               │
 | Terraform 파일 | `terraform.tfvars`, state, plan, kubeconfig는 gitignore | 테넌시 ID·IP·state의 자원 정보가 저장소에 올라가지 않게 |
 | LLM 키 | `.env` → `kubectl create secret`, 차트는 `optional` 참조 | values(커밋됨)에 키를 넣지 않음. Secret이 없어도 `/query`만 503 |
 | Grafana 관리자 비밀번호 | 배포 스크립트가 `GRAFANA_ADMIN_PASSWORD`로 전달 | 차트 기본값(admin)은 로컬 검증용 |
+| Discord 웹훅 URL | `.env` → `<release>-alerting` Secret(optional), 없으면 `.invalid` 기본값 | URL만 알면 누구나 채널에 글을 쓸 수 있는 비밀값. 없어도 Grafana는 떠야 함 |
 
 - Oracle의 Ubuntu 이미지는 기본 iptables가 22번 외 INPUT과 **모든 FORWARD를 REJECT**해 파드 네트워크가 막힙니다. cloud-init에서 REJECT 규칙만 지우고, 외부 방화벽 역할은 VCN 보안 목록에 맡깁니다.
 - Grafana는 익명 Viewer 접근이 켜져 있습니다. 서버에서는 터널로만 열리므로 그대로 두되, 외부에 공개할 때는 꺼야 합니다.
@@ -83,7 +84,7 @@ PC ─ ssh :22 (my IP/32 only) ─→ OCI ap-osaka-1               │
 - Terraform은 CI에서 자격 증명 없이 문법·구성만 검사하고, `plan`/`apply`는 로컬에서 합니다.
 - **자동 배포(CD)는 아직 없습니다.** 서버 SSH가 내 IP에만 열려 있어 GitHub Actions 러너가 접속할 수 없기 때문입니다. 배포는 `infra/k3s/deploy.sh <이미지 태그>`로 커밋 단위 태그를 지정해 합니다. 서버 안에서 이미지를 끌어오는 방식(pull 기반 GitOps)이 다음 후보입니다.
 
-## Helm 차트 (`charts/mini-mes/`, 0.6.0)
+## Helm 차트 (`charts/mini-mes/`, 0.7.0)
 
 | 구성 요소 | 리소스 | 비고 |
 |---|---|---|
@@ -92,6 +93,7 @@ PC ─ ssh :22 (my IP/32 only) ─→ OCI ap-osaka-1               │
 | anomaly-worker | Deployment · Service(메트릭) · PVC(모델) | 모델은 PVC에 저장, 파드를 다시 만들어도 유지 |
 | Prometheus · Grafana | Deployment · Service · PVC(Prometheus) · ConfigMap | compose의 `monitoring/` 구성과 같음, 대시보드 프로비저닝 |
 | 일일 리포트 | CronJob | 매일 00:10 `Asia/Seoul`에 `POST /reports/daily` (전날 리포트 저장) |
+| 알림 | Grafana 알림 규칙 ConfigMap, 웹훅 Secret(optional) | 열화 경보·급변 이상 다발·수집 대상 다운·모델 없음 → Discord |
 
 - `files/schema.sql`, `files/grafana-dashboard.json`은 원본의 복사본입니다 (Helm은 차트 밖 파일을 못 읽음). CI의 chart 작업이 원본과 diff로 비교해 어긋나면 실패합니다.
 - 차트가 쓰는 외부 이미지(postgres, Prometheus, Grafana, curl)는 모두 arm64를 지원합니다.
@@ -103,6 +105,7 @@ PC ─ ssh :22 (my IP/32 only) ─→ OCI ap-osaka-1               │
 | 2026-09-28 | k3d (k3s v1.30.4), 차트 0.3.x | 파드 5개, 워커 학습·판정, 모델 PVC 유지, Prometheus PVC 이력 유지, DB 대기 initContainer | 재시작 0회 (initContainer 추가 전 api 3회 재시작) |
 | 2026-09-29 | k3d (k3s v1.36.4, 서버와 같은 버전) | `deploy.sh`로 **GHCR `sha-f33e75c` 이미지** 배포 (서버와 같은 values) | 파드 5개 Running·재시작 0회, LLM Secret 주입, 학습·판정, 스크레이프 대상 up, Grafana 기본 비밀번호 거부 |
 | 2026-09-29 | k3d (k3s v1.36.4), 차트 0.6.0 | 일일 리포트 CronJob을 수동 Job으로 실행 | 전날 리포트 3행 저장, 렌더링 리소스 20개 kubeconform(strict) 통과 |
+| 2026-09-29 | k3d (k3s v1.36.4), 차트 0.7.0 | Grafana 알림 프로비저닝 | 웹훅 Secret 없이 파드 5개 Running·규칙 4개 등록, Secret 생성 후 URL 교체 |
 | 2026-09-29 | Oracle Cloud ap-osaka-1 | `terraform apply` (plan 6개) | 네트워크 5개 생성, VM은 `Out of host capacity` → 재시도 중 |
 
 **아직 확인하지 못한 것**
@@ -120,10 +123,12 @@ PC ─ ssh :22 (my IP/32 only) ─→ OCI ap-osaka-1               │
 | 서버(ARM)에서 amd64 이미지 실행 불가 | Oracle 상시 무료 VM은 ARM(A1) | buildx + QEMU로 amd64/arm64 멀티아키텍처 빌드 |
 | Oracle Ubuntu 이미지에서 파드 네트워크 차단 (예상) | 기본 iptables의 FORWARD REJECT | cloud-init에서 REJECT 규칙 제거 (서버에서 확인 예정) |
 | VM 생성 실패 `500-InternalError, Out of host capacity` | 오사카 리전 무료 ARM 재고 부족 (오사카는 가용 영역 1개) | 5분 간격 재시도 스크립트, 사양을 1 OCPU / 6GB로 낮춰 시도 |
+| 웹훅 URL이 없으면 Grafana가 시작하지 못함 | Discord 수신처는 URL 필수 (`could not find webhook url property`) | 연결되지 않는 예약 도메인(`.invalid`)을 기본값으로, 실제 URL은 뒤에 붙는 Secret이 덮어씀 (`envFrom`은 뒤의 값 우선) |
 | Grafana 기본 비밀번호로 로그인되는 것처럼 보임 | 익명 Viewer 접근이 켜져 있어 비밀번호가 틀려도 조회 API가 200 | 관리자 API(`/api/admin/settings`)로 다시 확인 → 기본 비밀번호는 401, 설정한 비밀번호만 200 |
 
 ## 한계와 다음 단계
 
 - **스키마 마이그레이션 도구가 없습니다.** DB 초기화 스크립트는 최초 1회만 실행되므로, 서버에 한 번 배포한 뒤 테이블이 추가되면 `schema.sql`을 직접 적용해야 합니다 (현재 스키마는 모두 `IF NOT EXISTS`라 다시 적용해도 안전).
+- 알림 메시지의 Grafana 링크가 `http://localhost:3000`(외부 주소 기본값)을 가리킵니다. 서버에서는 `GF_SERVER_ROOT_URL`을 접속 방식에 맞춰 지정해야 합니다.
 - 노드 1대라 VM이 멈추면 서비스도 멈춥니다. PVC는 K3s 기본 local-path(노드 디스크)입니다.
 - 다음: VM 생성 → 서버 배포와 위 미확인 항목 검증 → 자동 배포(pull 기반) 검토 → 외부 공개가 필요하면 인증을 붙인 Ingress.

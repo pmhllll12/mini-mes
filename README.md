@@ -246,7 +246,24 @@ curl -X POST http://localhost:8001/query -H 'Content-Type: application/json' \
 - Grafana: http://localhost:3000 (admin/admin, 로컬 전용 기본 계정) — "mini-mes 개요" 대시보드가 자동으로 로드됨
   - 이상탐지 패널: "이상 점수 추이"(설비별 점수 + 점선 threshold), "이상 탐지 횟수 (최근 1시간)", "열화 점수 추이", "열화 경보 상태"(경보 여부 + 최근 1시간 경보 횟수)
   - 자연어 질의 패널: "자연어 질의 요청 (최근 1시간, 제공자·결과별)", "자연어 질의 도구 호출 (최근 1시간)"
-  - 프로비저닝 파일: `monitoring/grafana/provisioning/`(datasource·dashboard 등록), `monitoring/grafana/dashboards/mini-mes.json`(대시보드 정의)
+  - 프로비저닝 파일: `monitoring/grafana/provisioning/`(datasource·dashboard·alerting 등록), `monitoring/grafana/dashboards/mini-mes.json`(대시보드 정의)
+
+### 알림 (Grafana Alerting → Discord)
+
+`monitoring/grafana/provisioning/alerting/alerting.yml`로 알림 규칙과 수신처가 자동 등록됩니다 (Grafana "Alerting > Alert rules"의 `mini-mes` 폴더).
+
+| 규칙 | 조건 | 심각도 |
+|---|---|---|
+| 열화 경보 | 설비별 `mes_drift_alarm == 1`이 30초 지속 | warning |
+| 급변 이상 다발 | 최근 10분 판정 중 이상 비율 > 20% (판정 5건 이상일 때만). 건수가 아닌 비율이라 시뮬레이터 기본 이상 비율(5%)에서는 울리지 않음 | warning |
+| 수집 대상 다운 | api·워커 `up == 0`이 1분 지속 | critical |
+| 이상탐지 모델 없음 | `mes_anomaly_model_loaded == 0`이 5분 지속 | warning |
+
+- 수신처: Discord 웹훅. URL은 `.env`의 `DISCORD_WEBHOOK_URL`(Helm은 `<release>-alerting` Secret, `infra/k3s/deploy.sh`가 `.env`에서 만듦)으로만 받습니다. 알림은 `알림 이름 + 설비`로 묶고 30초 대기 후 발송, 계속되면 4시간마다 재발송, 해소되면 해소 알림.
+- URL이 없으면 Grafana가 시작하지 못하므로(`could not find webhook url`) 연결되지 않는 예약 도메인(`.invalid`)을 기본값으로 둡니다. 규칙은 평가·표시되고 발송만 실패합니다.
+- 알림 문구의 템플릿은 `{{ $labels.equipment_id }}`처럼 `$` 하나로 씁니다 (Grafana 11.3은 없는 환경변수 이름은 치환하지 않고, `$$`는 그대로 남김 — 확인함).
+- 확인 (2026-09-29, compose): 이상 비율 50%·열화 모드 실행에서 "열화 경보"·"급변 이상 다발"이 설비 3대 모두 firing, 문구에 설비 ID·비율(61~68%) 표시. k3d(차트 0.7.0)에서 Secret 없이 규칙 4개 등록, Secret을 만들면 URL이 교체되는 것 확인. 실제 Discord 채널로 설비별 `[FIRING:1] 열화 경보 EQ-001 (mini-mes warning)` 메시지 수신 확인
+- 알림 메시지의 Source·Silence 링크는 Grafana 외부 주소(`GF_SERVER_ROOT_URL`) 기본값인 `http://localhost:3000`을 가리킵니다. 서버에서는 접속 방식(SSH 터널 포트)에 맞춰 지정해야 합니다 (미처리)
 
 ## 테스트 / CI
 

@@ -11,6 +11,9 @@ type: Opaque
 stringData:
   GF_SECURITY_ADMIN_USER: {{ $graf.adminUser | quote }}
   GF_SECURITY_ADMIN_PASSWORD: {{ $graf.adminPassword | quote }}
+  # 알림 수신처 기본값: 연결되지 않는 예약 도메인 (URL이 비면 Grafana가 시작하지 못함).
+  # 실제 URL은 뒤에 붙는 <release>-alerting Secret이 덮어쓴다 (envFrom은 뒤의 값이 우선)
+  DISCORD_WEBHOOK_URL: "http://discord-webhook-not-set.invalid"
 ---
 # docker-compose의 monitoring/grafana/provisioning 과 같은 구성 (datasource URL만 클러스터 Service 이름)
 apiVersion: v1
@@ -54,6 +57,17 @@ data:
   mini-mes.json: |
 {{ .Files.Get "files/grafana-dashboard.json" | indent 4 }}
 ---
+# 알림 규칙·Discord 수신처 (monitoring/grafana/provisioning/alerting/alerting.yml 복사본)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-grafana-alerting
+  labels:
+    {{- include "mini-mes.labels" . | nindent 4 }}
+data:
+  alerting.yml: |
+{{ .Files.Get "files/grafana-alerting.yml" | indent 4 }}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -73,7 +87,7 @@ spec:
         {{- include "mini-mes.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: grafana
       annotations:
-        checksum/config: {{ print (.Files.Get "files/grafana-dashboard.json") (toJson .Values.monitoring) | sha256sum | trunc 16 }}  # 대시보드·설정이 바뀌면 파드 재시작
+        checksum/config: {{ print (.Files.Get "files/grafana-dashboard.json") (.Files.Get "files/grafana-alerting.yml") (toJson .Values.monitoring) | sha256sum | trunc 16 }}  # 대시보드·설정이 바뀌면 파드 재시작
     spec:
       containers:
         - name: grafana
@@ -81,6 +95,10 @@ spec:
           envFrom:
             - secretRef:
                 name: {{ $fullname }}-grafana
+            # DISCORD_WEBHOOK_URL - 없으면 위 기본값(발송만 실패)
+            - secretRef:
+                name: {{ $graf.alerting.existingSecret | default (printf "%s-alerting" .Release.Name) }}
+                optional: true
           env:
             - name: GF_AUTH_ANONYMOUS_ENABLED
               value: "true"
@@ -109,6 +127,8 @@ spec:
               subPath: dashboards.yml
             - name: dashboards
               mountPath: /var/lib/grafana/dashboards
+            - name: alerting
+              mountPath: /etc/grafana/provisioning/alerting
       volumes:
         - name: provisioning
           configMap:
@@ -116,6 +136,9 @@ spec:
         - name: dashboards
           configMap:
             name: {{ $fullname }}-grafana-dashboards
+        - name: alerting
+          configMap:
+            name: {{ $fullname }}-grafana-alerting
 ---
 apiVersion: v1
 kind: Service

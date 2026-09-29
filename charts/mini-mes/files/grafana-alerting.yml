@@ -1,0 +1,144 @@
+# Grafana 알림 (파일 프로비저닝) - 알림 규칙 4개와 Discord 수신처
+# 웹훅 URL은 비밀값이라 환경변수 DISCORD_WEBHOOK_URL로만 받는다 (compose: .env, Helm: <release>-alerting Secret)
+# charts/mini-mes/files/grafana-alerting.yml은 이 파일의 복사본 (CI chart 작업이 diff로 검사)
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: discord
+    receivers:
+      - uid: mini-mes-discord
+        type: discord
+        settings:
+          url: $DISCORD_WEBHOOK_URL
+          use_discord_username: false
+        disableResolveMessage: false
+
+policies:
+  - orgId: 1
+    receiver: discord
+    group_by: ["alertname", "equipment_id"]
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+
+groups:
+  - orgId: 1
+    name: mini-mes
+    folder: mini-mes
+    interval: 30s
+    rules:
+      - uid: mes-drift-alarm
+        title: 열화 경보
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: mini-mes-prometheus
+            model:
+              refId: A
+              expr: max by (equipment_id) (mes_drift_alarm)
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 30s
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.equipment_id }} 점진적 열화 경보"
+          description: "사이클타임 등 이동 구간 특징이 정상 범위를 계속 벗어납니다. 이력: GET /drift-alarms?equipment_ids={{ $labels.equipment_id }}"
+
+      - uid: mes-anomaly-burst
+        title: 급변 이상 다발
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: mini-mes-prometheus
+            model:
+              refId: A
+              # 최근 10분 판정 중 이상 비율 (판정 5건 미만이면 제외)
+              expr: >-
+                sum by (equipment_id) (increase(mes_anomaly_detected_total[10m]))
+                / (sum by (equipment_id) (increase(mes_anomaly_scored_total[10m])) >= 5)
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0.2]}
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.equipment_id }} 최근 10분 급변 이상 비율 {{ humanizePercentage $values.A.Value }}"
+          description: "이상 판정 목록: GET /anomalies?equipment_ids={{ $labels.equipment_id }}&hours=1"
+
+      - uid: mes-target-down
+        title: 수집 대상 다운
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: mini-mes-prometheus
+            model:
+              refId: A
+              expr: min by (job) (up{job=~".*(api|anomaly-worker)"})
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: lt, params: [1]}
+        for: 1m
+        noDataState: Alerting
+        execErrState: Error
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} 응답 없음"
+          description: "Prometheus가 1분 넘게 메트릭을 수집하지 못했습니다."
+
+      - uid: mes-model-missing
+        title: 이상탐지 모델 없음
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: mini-mes-prometheus
+            model:
+              refId: A
+              expr: min by (equipment_id) (mes_anomaly_model_loaded)
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: lt, params: [1]}
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.equipment_id }} 이상탐지 모델이 없어 판정하지 않고 있습니다"
+          description: "정상 데이터로 train.py 학습 필요 (README 이상탐지 워커 절차)."

@@ -64,3 +64,8 @@ monitoring:
     port: 3000
     adminUser: admin
     adminPassword: admin   # 로컬 검증용 기본값. 실제 배포 시 --set monitoring.grafana.adminPassword=... 로 변경
+    # 알림(Discord) - 웹훅 URL은 values에 넣지 않고 Secret으로만:
+    #   kubectl create secret generic <release>-alerting --from-literal=DISCORD_WEBHOOK_URL=...
+    # Secret이 없으면 규칙은 평가·표시되고 발송만 실패
+    alerting:
+      existingSecret: ""   # 비우면 "<release>-alerting"

@@ -81,6 +81,7 @@ jobs:
         run: |
           diff -u db/schema.sql charts/mini-mes/files/schema.sql
           diff -u monitoring/grafana/dashboards/mini-mes.json charts/mini-mes/files/grafana-dashboard.json
+          diff -u monitoring/grafana/provisioning/alerting/alerting.yml charts/mini-mes/files/grafana-alerting.yml
 
       - uses: azure/setup-helm@v5
         with:

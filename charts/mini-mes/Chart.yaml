@@ -2,5 +2,5 @@ apiVersion: v2
 name: mini-mes
 description: mini-mes API + 이상탐지 워커 + PostgreSQL + Prometheus·Grafana Helm 차트 (로컬 k3d/minikube 검증용)
 type: application
-version: 0.6.0
+version: 0.7.0
 appVersion: "0.1.0"

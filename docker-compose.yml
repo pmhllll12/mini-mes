@@ -64,6 +64,9 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: admin
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      # 알림 수신처 (monitoring/grafana/provisioning/alerting). URL이 비어 있으면 Grafana가 시작하지 못하므로
+      # .env에 없을 때는 연결되지 않는 예약 도메인(.invalid)을 넣는다 - 규칙은 평가·표시되고 발송만 실패
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-http://discord-webhook-not-set.invalid}
     ports:
       - "3000:3000"
     volumes:
