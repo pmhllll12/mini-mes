@@ -350,6 +350,7 @@ minikube를 쓴다면 2)의 `k3d image import` 대신 `minikube image load mini-
 ## Oracle Cloud K3s 배포 (Terraform, 진행 중)
 
 K3s 서버는 Oracle Cloud 상시 무료 ARM VM(A1.Flex, 오사카 `ap-osaka-1`)에 올립니다. `infra/terraform/oci/`가 VCN·인터넷 게이트웨이·서브넷·보안 목록·VM을 만들고, cloud-init이 K3s를 설치합니다.
+구성도·보안 설계·CI/CD·검증 기록은 **[인프라 상세 문서](docs/infra.md)**([GitHub Pages](https://pmhllll12.github.io/mini-mes/infra/))에 정리했습니다.
 
 - **외부 노출 최소화:** 보안 목록 인바운드는 SSH(22)를 내 IP(`allowed_ssh_cidr`, `0.0.0.0/0`은 validation으로 거부)에만 허용합니다. K3s API·api·Grafana는 열지 않고 SSH 터널로 접속합니다. `/query`를 공개하면 LLM 한도가 남용될 수 있어 공개 여부는 따로 정합니다.
 - **Oracle Ubuntu 이미지의 iptables:** 기본 규칙이 22 외 INPUT과 모든 FORWARD를 REJECT해 파드 네트워크가 막히므로, cloud-init에서 REJECT 규칙만 지웁니다 (외부 방화벽은 보안 목록이 담당).

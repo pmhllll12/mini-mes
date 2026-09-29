@@ -15,5 +15,6 @@ header_pages:
   - index.md
   - anomaly-detection.md
   - nlq.md
+  - infra.md
 
 markdown: kramdown

@@ -11,6 +11,7 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 - 실행 방법·API 상세: [README](https://github.com/pmhllll12/mini-mes#readme)
 - 이상탐지 설계와 성능 평가: [이상탐지]({{ '/anomaly-detection/' | relative_url }})
 - 자연어 질의 설계와 평가: [자연어 질의]({{ '/nlq/' | relative_url }})
+- 배포 구성·보안 설계·CI/CD·검증 기록: [인프라]({{ '/infra/' | relative_url }})
 
 > **현재 상태:** 6주차 진행 중 — 핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링, GitHub Actions CI, Helm 차트 + k3d 로컬 검증, 이상탐지 워커 + 가상 데이터 기준 성능 평가, 자연어 질의 API(Gemini로 부분 평가, Claude 미평가).
 > 7주차: K3s 서버는 Oracle Cloud 상시 무료 ARM VM(오사카)으로 정하고 Terraform 코드를 작성했습니다. 네트워크는 생성됐지만 VM은 무료 ARM 재고 부족("Out of host capacity")으로 아직 생성 대기 중입니다.
