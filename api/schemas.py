@@ -115,7 +115,7 @@ class DriftAlarmOut(BaseModel):
 class QueryIn(BaseModel):
     """자연어 질의 요청"""
     question: str = Field(min_length=1, max_length=500)
-    provider: Optional[Literal["claude", "gemini"]] = None  # 생략 시 NLQ_PROVIDER 또는 키가 있는 제공자
+    provider: Optional[Literal["claude", "gemini", "openai_compat"]] = None  # 생략 시 NLQ_PROVIDER 또는 설정된 제공자
 
 
 class QueryToolCall(BaseModel):

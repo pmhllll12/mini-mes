@@ -19,7 +19,7 @@ from oee import calculate_oee
 from quality import calculate_defect_summary
 from anomaly import DRIFT_ALARM_CSV_COLUMNS, list_drift_alarms, summarize_anomalies
 from report import REPORT_COLUMNS, build_daily_report, load_daily_reports, save_daily_report, yesterday_kst
-from nlq_providers import ClaudeProvider, GeminiProvider, NLQProviderError, user_message
+from nlq_providers import ClaudeProvider, GeminiProvider, NLQProviderError, OpenAICompatProvider, user_message
 from nlq_tools import TOOL_NAMES, ToolError, execute_tool
 
 # 로컬 개발 편의를 위해 앱 시작 시 테이블 자동 생성
@@ -285,22 +285,27 @@ NLQ_TIMEOUT_SEC = float(os.getenv("NLQ_TIMEOUT_SEC", "60"))
 
 
 def get_nlq_provider(requested: Optional[str]):
-    """요청의 provider > 환경변수 NLQ_PROVIDER > 키가 있는 제공자(claude, gemini 순).
-    키가 없으면 503 - 자연어 질의만 비활성이고 다른 API는 영향 없음."""
-    keys = {
+    """요청의 provider > 환경변수 NLQ_PROVIDER > 설정된 제공자(claude, gemini, openai_compat 순).
+    설정이 없으면 503 - 자연어 질의만 비활성이고 다른 API는 영향 없음.
+    openai_compat(로컬 Ollama 등)은 키 대신 OPENAI_COMPAT_BASE_URL·OPENAI_COMPAT_MODEL로 설정 (키는 선택)."""
+    configured = {
         "claude": os.getenv("ANTHROPIC_API_KEY", "").strip(),
         "gemini": os.getenv("GEMINI_API_KEY", "").strip(),
+        "openai_compat": os.getenv("OPENAI_COMPAT_BASE_URL", "").strip() and os.getenv("OPENAI_COMPAT_MODEL", "").strip(),
     }
-    name = requested or os.getenv("NLQ_PROVIDER", "").strip().lower() or next((p for p in keys if keys[p]), None)
+    name = requested or os.getenv("NLQ_PROVIDER", "").strip().lower() or next((p for p in configured if configured[p]), None)
     if name is None:
-        raise HTTPException(status_code=503, detail="자연어 질의 비활성: ANTHROPIC_API_KEY 또는 GEMINI_API_KEY를 설정하세요")
-    if name not in keys:
-        raise HTTPException(status_code=400, detail=f"알 수 없는 provider: {name} (claude 또는 gemini)")
-    if not keys[name]:
-        raise HTTPException(status_code=503, detail=f"자연어 질의 비활성: {name} API 키가 설정되지 않았습니다")
+        raise HTTPException(status_code=503, detail="자연어 질의 비활성: ANTHROPIC_API_KEY, GEMINI_API_KEY 또는 OPENAI_COMPAT_BASE_URL·OPENAI_COMPAT_MODEL을 설정하세요")
+    if name not in configured:
+        raise HTTPException(status_code=400, detail=f"알 수 없는 provider: {name} (claude, gemini, openai_compat)")
+    if not configured[name]:
+        raise HTTPException(status_code=503, detail=f"자연어 질의 비활성: {name} 설정이 없습니다")
     if name == "claude":
-        return ClaudeProvider(keys[name], os.getenv("CLAUDE_MODEL") or "claude-opus-5", NLQ_TIMEOUT_SEC)
-    return GeminiProvider(keys[name], os.getenv("GEMINI_MODEL") or "gemini-flash-latest", NLQ_TIMEOUT_SEC)
+        return ClaudeProvider(configured[name], os.getenv("CLAUDE_MODEL") or "claude-opus-5", NLQ_TIMEOUT_SEC)
+    if name == "openai_compat":
+        return OpenAICompatProvider(os.getenv("OPENAI_COMPAT_BASE_URL").strip(), os.getenv("OPENAI_COMPAT_MODEL").strip(),
+                                    NLQ_TIMEOUT_SEC, api_key=os.getenv("OPENAI_COMPAT_API_KEY", "").strip())
+    return GeminiProvider(configured[name], os.getenv("GEMINI_MODEL") or "gemini-flash-latest", NLQ_TIMEOUT_SEC)
 
 
 @app.post("/query", response_model=schemas.QueryOut)

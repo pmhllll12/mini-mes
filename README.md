@@ -204,6 +204,8 @@ curl -X POST http://localhost:8001/query -H 'Content-Type: application/json' \
 - **API 키는 `.env`에만** 넣습니다: `cp .env.example .env` 후 `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` 입력 (`.env`는 커밋되지 않음). 키가 없으면 `/query`만 503이고 다른 API는 그대로 동작합니다.
 - 메트릭: `mes_nlq_requests_total{provider,outcome}`, `mes_nlq_tool_calls_total{provider,tool,ok}` — Grafana "자연어 질의 요청", "자연어 질의 도구 호출" 패널
 
+- 제공자: Claude·Gemini 외에 **OpenAI 호환 어댑터**(`openai_compat`, 로컬 Ollama·OpenAI·Groq 등 설정만으로). 로컬 `qwen2.5:7b-instruct`(RTX 3050)로 13개 평가 9/13·평균 5초 — 도구 호출 형식 오류·설비 ID 추측·중국어 답변이 있어 서비스용으로는 부족, 반복 확인용 (상세는 docs/nlq.md)
+
 **평가** (`evaluate/nlq_eval.py`, 질문 13개 — 아래 결과는 도구 추가 전 12개 기준, 바뀐 `drift_history`·새 `daily_report_yesterday`는 미평가): 도구 선택, 설비·기간 인자, 도구 결과를 답변에 그대로 전했는지(근거), 없는 설비·조회 불가 항목·범위 밖 질문에 추측 없이 안내하는지를 채점합니다.
 
 | 제공자 · 모델 (2026-09-28) | 평가 완료 | 통과 | 도구 선택 | 설비 인자 | 기간 인자 | 근거 | 안내 문구 | 평균 응답 |

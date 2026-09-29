@@ -9,6 +9,7 @@
 API 키는 환경변수(ANTHROPIC_API_KEY / GEMINI_API_KEY)로만 받는다. 코드나 로그에 키를 남기지 않는다.
 """
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, List, Optional, Tuple
@@ -193,6 +194,82 @@ class GeminiProvider:
             if not answer and (candidate is None or "SAFETY" in finish or "PROHIBITED" in finish or "BLOCK" in finish):
                 return NLQResult(self.name, model, "모델이 이 질문에 대한 답변을 거절했습니다.", "refusal", calls)
             if "MAX_TOKENS" in finish:
+                stop = "max_tokens"
+            elif final_round and calls:
+                stop = "max_rounds"
+            else:
+                stop = "answer"
+            return NLQResult(self.name, model, answer, stop, calls)
+        raise AssertionError("unreachable")
+
+
+class OpenAICompatProvider:
+    """OpenAI Chat Completions 호환 API의 tools (수동 루프)
+
+    같은 형식을 쓰는 로컬 Ollama(`http://<host>:11434/v1`), OpenAI, Groq, OpenRouter 등을
+    base_url·model 설정만 바꿔 쓴다. SDK 없이 requests로 호출한다 (의존성 추가 없음).
+    """
+
+    name = "openai_compat"
+    # 추론 모델(Qwen3 등)이 답변 앞에 붙이는 생각 과정은 답변에서 뺀다
+    _THINK = re.compile(r"<think>.*?</think>", re.DOTALL)
+
+    def __init__(self, base_url: str, model: str, timeout: float, api_key: str = "", session: Any = None):
+        import requests
+        self.url = base_url.rstrip("/") + "/chat/completions"
+        self.model = model
+        self.timeout = timeout
+        self.headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        self.session = session or requests.Session()
+        self.tools = [
+            {"type": "function", "function": {"name": s["name"], "description": s["description"], "parameters": s["parameters"]}}
+            for s in TOOL_SPECS
+        ]
+
+    def _create(self, messages: list, final_round: bool) -> dict:
+        import requests
+        body = {"model": self.model, "messages": messages, "tools": self.tools,
+                "tool_choice": "none" if final_round else "auto"}
+        try:
+            resp = self.session.post(self.url, json=body, headers=self.headers, timeout=self.timeout)
+        except requests.RequestException as e:
+            raise NLQProviderError("OpenAI 호환 API 연결 실패") from e
+        if resp.status_code >= 400:
+            raise NLQProviderError(f"OpenAI 호환 API 오류 (HTTP {resp.status_code})")
+        return resp.json()
+
+    def run(self, user_text: str, run_tool: RunTool, max_rounds: int) -> NLQResult:
+        messages: list = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user_text}]
+        calls: List[dict] = []
+        for round_no in range(max_rounds + 1):
+            final_round = round_no == max_rounds
+            data = self._create(messages, final_round)
+            model = data.get("model") or self.model
+            choice = (data.get("choices") or [{}])[0]
+            message = choice.get("message") or {}
+            finish = choice.get("finish_reason")
+            tool_calls = message.get("tool_calls") or []
+            if tool_calls and not final_round:
+                messages.append({"role": "assistant", "content": message.get("content") or "", "tool_calls": tool_calls})
+                for tc in tool_calls:
+                    fn = tc.get("function") or {}
+                    name = fn.get("name", "")
+                    try:
+                        args = json.loads(fn.get("arguments") or "{}")
+                    except json.JSONDecodeError:
+                        args = None
+                    if isinstance(args, dict):
+                        ok, payload = run_tool(name, args)
+                    else:
+                        args, ok, payload = {}, False, "인자가 올바른 JSON 객체가 아닙니다"
+                    _record(calls, name, args, ok, payload)
+                    messages.append({"role": "tool", "tool_call_id": tc.get("id", ""),
+                                     "content": json.dumps(payload if ok else {"error": payload}, ensure_ascii=False)})
+                continue
+            if message.get("refusal"):
+                return NLQResult(self.name, model, "모델이 이 질문에 대한 답변을 거절했습니다.", "refusal", calls)
+            answer = self._THINK.sub("", message.get("content") or "").strip()
+            if finish == "length":
                 stop = "max_tokens"
             elif final_round and calls:
                 stop = "max_rounds"

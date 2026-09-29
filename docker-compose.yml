@@ -27,6 +27,13 @@ services:
       NLQ_PROVIDER: ${NLQ_PROVIDER:-}
       CLAUDE_MODEL: ${CLAUDE_MODEL:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-}
+      # OpenAI 호환 API (로컬 Ollama 예: http://host.docker.internal:11434/v1, 모델 qwen2.5:7b-instruct). 키는 선택
+      OPENAI_COMPAT_BASE_URL: ${OPENAI_COMPAT_BASE_URL:-}
+      OPENAI_COMPAT_MODEL: ${OPENAI_COMPAT_MODEL:-}
+      OPENAI_COMPAT_API_KEY: ${OPENAI_COMPAT_API_KEY:-}
+      NLQ_TIMEOUT_SEC: ${NLQ_TIMEOUT_SEC:-60}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # 호스트(WSL)에서 도는 Ollama 접속용
     ports:
       - "8001:8000"
     depends_on:

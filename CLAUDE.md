@@ -7,7 +7,7 @@
 FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana, GitHub Actions, Helm(k3d 로컬 검증), scikit-learn(Isolation Forest), Terraform(Oracle Cloud)
 
 ## 구조
-- api/ : FastAPI 앱 (main.py, models.py, schemas.py, oee.py, quality.py, anomaly.py, metrics.py, database.py, report.py 일일 리포트, nlq_tools.py 자연어 질의 읽기 전용 도구 6개(결과 필드명에 단위 표기), nlq_providers.py Claude·Gemini 어댑터)
+- api/ : FastAPI 앱 (main.py, models.py, schemas.py, oee.py, quality.py, anomaly.py, metrics.py, database.py, report.py 일일 리포트, nlq_tools.py 자연어 질의 읽기 전용 도구 6개(결과 필드명에 단위 표기), nlq_providers.py Claude·Gemini·OpenAI 호환(openai_compat, requests로 호출) 어댑터)
 - api/tests/ : pytest 테스트 (Postgres 필요, db/schema.sql 적용된 DB 대상). conftest.py의 autouse fixture가 테스트 프로세스가 넣은 행(after_insert 추적)과 워커가 그 로그를 판정한 결과를 지우고 설비 status를 복원 (KEEP_TEST_DATA=1이면 유지)
 - anomaly-worker/ : 이상탐지 워커 컨테이너 (features.py 특징 추출, model.py 설비별 Isolation Forest + robust z-score 결합(v2, v1 번들도 호환), features.py build_features(--rolling-window 이동 구간 특징, 기본 꺼짐), train.py 학습 CLI, worker.py 주기 추론 + :9100 메트릭 + 급변/열화 경보 분리, db.py). 모델은 anomaly_models 볼륨(/models)에 저장. tests/는 DB 없이 실행
 - evaluate/nlq_eval.py + nlq_questions.json : 자연어 질의 평가(도구 선택·인자·근거·단위·안내 문구, --only로 일부만, --out에 도구 결과까지 저장). 실제 LLM 호출이라 비용·무료 한도 소모 → 실행 전 사용자 확인
@@ -27,6 +27,7 @@ FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana, GitHub 
 - helm·k3d·terraform·kubectl은 ~/.local/bin에 설치됨 (helm v3.16.2, k3d v5.7.4, terraform 1.16.4, kubectl 1.36.5). k3d 검증 시 호스트 8001은 compose API가 쓰므로 port-forward는 18001 등 다른 포트 사용
 - LLM API 키는 루트 .env에만 (ANTHROPIC_API_KEY, GEMINI_API_KEY, .env.example 참고). 키 값을 출력·커밋하지 않는다. Gemini 무료 등급은 모델당 하루 20회 한도 (gemini-flash-latest=gemini-3.8-flash, gemini-2.5-flash는 별도 한도). Anthropic 조직 크레딧 $0이라 Claude는 미검증
 - Gemini function calling: 함수 결과는 role="user"로 전송 (role="tool"은 Developer API가 400)
+- 로컬 LLM: WSL의 Ollama(~/.ollama-local/bin/ollama, 0.32.15, localhost:11434, RTX 3050 8GB). API 컨테이너는 host.docker.internal:11434/v1 (compose extra_hosts). .env에 OPENAI_COMPAT_BASE_URL/MODEL, 기본 NLQ_PROVIDER=gemini 유지하고 요청의 provider=openai_compat로 사용. qwen2.5:7b-instruct는 9/13(형식 오류·ID 추측·중국어), qwen3:4b는 도구 호출을 텍스트로 내서 실패. 로컬 평가는 한도 없음 → 확인 없이 돌려도 됨(Gemini·Claude 평가만 사전 확인)
 - 로컬 python은 3.14라 scikit-learn 고정 버전 설치가 안 됨 → 워커/평가 테스트는 python:3.12 컨테이너에서 실행
 
 ## 이상탐지 규칙

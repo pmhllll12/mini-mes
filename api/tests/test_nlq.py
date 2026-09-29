@@ -127,7 +127,7 @@ def test_user_message_carries_current_time_in_kst():
 
 @pytest.fixture()
 def no_keys(monkeypatch):
-    for key in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "NLQ_PROVIDER"):
+    for key in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "NLQ_PROVIDER", "OPENAI_COMPAT_BASE_URL", "OPENAI_COMPAT_MODEL"):
         monkeypatch.delenv(key, raising=False)
 
 
@@ -143,6 +143,19 @@ def test_provider_selection_follows_available_key(no_keys, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     assert isinstance(main.get_nlq_provider(None), ClaudeProvider)      # 둘 다 있으면 claude
     assert isinstance(main.get_nlq_provider("gemini"), GeminiProvider)  # 요청이 우선
+
+
+def test_openai_compat_provider_needs_base_url_and_model(no_keys, monkeypatch):
+    from fastapi import HTTPException
+
+    from nlq_providers import OpenAICompatProvider
+    monkeypatch.setenv("OPENAI_COMPAT_BASE_URL", "http://host.docker.internal:11434/v1")
+    with pytest.raises(HTTPException) as e:
+        main.get_nlq_provider("openai_compat")  # 모델 없으면 비활성
+    assert e.value.status_code == 503
+    monkeypatch.setenv("OPENAI_COMPAT_MODEL", "qwen3:4b")
+    provider = main.get_nlq_provider(None)  # 키 없이 base_url·model만으로 설정된 제공자
+    assert isinstance(provider, OpenAICompatProvider) and provider.model == "qwen3:4b"
 
 
 def test_query_returns_answer_with_tool_calls(client, monkeypatch):
@@ -276,3 +289,71 @@ def test_gemini_blocked_response_is_reported_as_refusal():
     fake = FakeGemini([_gemini_resp(text=None, finish="SAFETY")])
     result = GeminiProvider("k", "m", 5, client=fake).run("질문", lambda n, a: (True, {}), max_rounds=3)
     assert result.stop == "refusal"
+
+
+# ---------- OpenAI 호환 어댑터 (로컬 Ollama 등) ----------
+
+class FakeSession:
+    def __init__(self, responses, status=200):
+        self.responses = list(responses)
+        self.status = status
+        self.calls = []
+
+    def post(self, url, json, headers, timeout):
+        self.calls.append({"url": url, "body": json, "headers": headers, "messages": list(json["messages"])})
+        return SimpleNamespace(status_code=self.status, json=lambda: self.responses.pop(0))
+
+
+def _oa_resp(content=None, tool_calls=None, finish="stop"):
+    return {"model": "qwen3:4b", "choices": [{"finish_reason": finish, "message": {
+        "role": "assistant", "content": content, **({"tool_calls": tool_calls} if tool_calls else {})}}]}
+
+
+def _oa_call(name, arguments, id_="call_1"):
+    import json as _json
+    return {"id": id_, "type": "function",
+            "function": {"name": name, "arguments": arguments if isinstance(arguments, str) else _json.dumps(arguments)}}
+
+
+def test_openai_compat_loop_executes_tools_and_strips_thinking():
+    from nlq_providers import OpenAICompatProvider
+    session = FakeSession([
+        _oa_resp(tool_calls=[_oa_call("get_oee", {"equipment_ids": ["EQ-001"], **RANGE})], finish="tool_calls"),
+        _oa_resp(content="<think>기간을 계산하면...</think>\n\nEQ-001 OEE는 0.88입니다."),
+    ])
+    result = OpenAICompatProvider("http://ollama:11434/v1/", "qwen3:4b", 5, session=session).run(
+        "질문", lambda n, a: (True, {"oee": 0.88}), max_rounds=3)
+
+    assert result.answer == "EQ-001 OEE는 0.88입니다." and result.stop == "answer" and result.model == "qwen3:4b"
+    assert result.tool_calls[0]["input"]["equipment_ids"] == ["EQ-001"]
+    first = session.calls[0]
+    assert first["url"] == "http://ollama:11434/v1/chat/completions" and first["headers"] == {}
+    assert first["body"]["tool_choice"] == "auto" and first["messages"][0]["role"] == "system"
+    tool_msg = session.calls[1]["messages"][-1]
+    assert tool_msg["role"] == "tool" and tool_msg["tool_call_id"] == "call_1" and '"oee": 0.88' in tool_msg["content"]
+
+
+def test_openai_compat_invalid_arguments_are_returned_as_tool_error():
+    from nlq_providers import OpenAICompatProvider
+    session = FakeSession([
+        _oa_resp(tool_calls=[_oa_call("get_oee", "{not json")], finish="tool_calls"),
+        _oa_resp(content="인자를 고칠 수 없습니다."),
+    ])
+    executed = []
+    result = OpenAICompatProvider("http://x/v1", "m", 5, api_key="k", session=session).run(
+        "질문", lambda n, a: (executed.append(n) or True, {}), max_rounds=3)
+    assert executed == [] and result.tool_calls[0]["ok"] is False
+    assert session.calls[0]["headers"] == {"Authorization": "Bearer k"}
+    assert "error" in session.calls[1]["messages"][-1]["content"]
+
+
+def test_openai_compat_final_round_disables_tools_and_http_error_is_reported():
+    from nlq_providers import NLQProviderError, OpenAICompatProvider
+    call = _oa_resp(tool_calls=[_oa_call("list_equipment", {})], finish="tool_calls")
+    session = FakeSession([call, _oa_resp(content="요약")])
+    result = OpenAICompatProvider("http://x/v1", "m", 5, session=session).run("질문", lambda n, a: (True, {}), max_rounds=1)
+    assert session.calls[-1]["body"]["tool_choice"] == "none" and result.stop == "max_rounds"
+
+    with pytest.raises(NLQProviderError, match="HTTP 500"):
+        OpenAICompatProvider("http://x/v1", "m", 5, session=FakeSession([{}], status=500)).run(
+            "질문", lambda n, a: (True, {}), max_rounds=1)
