@@ -5,3 +5,4 @@ allowed_ssh_cidr = "203.0.113.10/32" # curl -s https://checkip.amazonaws.com 결
 # ssh_public_key_path = "~/.ssh/id_ed25519.pub"
 # ocpus = 2
 # memory_gb = 12
+# budget_alert_email = "you@example.com"   # 과금 발생 시 알림 (budget.tf)

@@ -63,3 +63,21 @@ variable "k3s_version" {
   type    = string
   default = "v1.36.4+k3s1"
 }
+
+# 비용 안전장치 (budget.tf)
+variable "budget_amount" {
+  description = "월 예산 (계정 청구 통화 기준). 알림은 이 금액의 1% 실제 지출부터"
+  type        = number
+  default     = 1
+}
+
+variable "budget_alert_email" {
+  description = "예산 알림 받을 이메일. 비우면 예산만 만들고 알림 규칙은 만들지 않음"
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.budget_alert_email == "" || can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", var.budget_alert_email))
+    error_message = "budget_alert_email은 이메일 형식이어야 합니다."
+  }
+}

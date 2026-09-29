@@ -46,6 +46,7 @@ PC ─ ssh :22 (my IP/32 only) ─→ OCI ap-osaka-1               │
 | 서브넷 | 10.0.1.0/24, 공인 IP 할당 |
 | VM | `VM.Standard.A1.Flex`, 기본 2 OCPU / 12GB, 부트 볼륨 50GB, 최신 Ubuntu 24.04(aarch64) 이미지 |
 | cloud-init | iptables REJECT 규칙 제거 → K3s(v1.36.4) 설치 → kubeconfig를 ubuntu 사용자에게 복사 |
+| 예산 (`budget.tf`) | 월 예산 1(청구 통화), 실제 지출이 1%를 넘으면 / 월말 예상이 예산을 넘으면 이메일. 상시 무료만 쓰므로 지출은 0이어야 하고, 과금이 생기면 바로 알기 위한 안전장치 (지출을 막지는 않음) |
 
 - **상시 무료 범위 안에서만** 만듭니다 (A1 합계 4 OCPU / 24GB, 블록 볼륨 합계 200GB). 무료 체험 기간이 끝나도 사라지거나 과금되는 자원이 없게 하기 위함입니다.
 - 이미지가 새로 나와도 VM을 다시 만들지 않도록 이미지 ID와 metadata는 `ignore_changes`로 둡니다.
@@ -106,6 +107,7 @@ PC ─ ssh :22 (my IP/32 only) ─→ OCI ap-osaka-1               │
 | 2026-09-29 | k3d (k3s v1.36.4, 서버와 같은 버전) | `deploy.sh`로 **GHCR `sha-f33e75c` 이미지** 배포 (서버와 같은 values) | 파드 5개 Running·재시작 0회, LLM Secret 주입, 학습·판정, 스크레이프 대상 up, Grafana 기본 비밀번호 거부 |
 | 2026-09-29 | k3d (k3s v1.36.4), 차트 0.6.0 | 일일 리포트 CronJob을 수동 Job으로 실행 | 전날 리포트 3행 저장, 렌더링 리소스 20개 kubeconform(strict) 통과 |
 | 2026-09-29 | k3d (k3s v1.36.4), 차트 0.7.0 | Grafana 알림 프로비저닝 | 웹훅 Secret 없이 파드 5개 Running·규칙 4개 등록, Secret 생성 후 URL 교체 |
+| 2026-09-29 | Oracle Cloud ap-osaka-1 | 예산·알림 규칙 (`plan -target`으로 예산 3개만, 재시도 스크립트 멈춘 뒤 적용) | 3개 생성 |
 | 2026-09-29 | Oracle Cloud ap-osaka-1 | `terraform apply` (plan 6개) | 네트워크 5개 생성, VM은 `Out of host capacity` → 재시도 중 |
 
 **아직 확인하지 못한 것**
