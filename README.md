@@ -359,7 +359,15 @@ TF_VAR_ocpus=1 TF_VAR_memory_gb=6 ./retry-apply.sh
 # 배포: 터널을 켜 둔 채 (terraform output kube_tunnel)
 ssh -N -L 16443:127.0.0.1:6443 ubuntu@$(terraform output -raw public_ip)
 SERVER_IP=$(terraform output -raw public_ip) GRAFANA_ADMIN_PASSWORD=... ../../k3s/deploy.sh
+# 로컬 검증: KUBE_CONTEXT=k3d-<클러스터> GRAFANA_ADMIN_PASSWORD=... infra/k3s/deploy.sh <이미지 태그>
 ```
+
+**배포 경로 로컬 검증 (2026-09-29, k3d + k3s v1.36.4, 서버와 같은 버전):** `KUBE_CONTEXT=k3d-mini-mes-oci GRAFANA_ADMIN_PASSWORD=... infra/k3s/deploy.sh sha-f33e75c` (`KUBE_CONTEXT`를 주면 SSH로 kubeconfig를 가져오지 않고 그 컨텍스트에 같은 values로 배포)
+- GHCR에서 `sha-f33e75c` 이미지를 인증 없이 받아 파드 5개 Running, 재시작 0회
+- `.env`로 만든 Secret에서 `GEMINI_API_KEY` 주입(값은 출력하지 않고 길이만 확인), `GEMINI_MODEL=gemini-2.5-flash`
+- `/health` 200, 정상 데이터 학습(설비 3개) → 이상 섞인 100건×3 판정(이상 60건), Prometheus 스크레이프 대상 api·워커 up
+- Grafana: 기본 비밀번호 `admin/admin`은 401, 넘긴 비밀번호로만 관리자 API 200
+- 로컬 PC는 amd64라 arm64 이미지의 실행은 확인하지 못함 (CI에서 arm64 빌드·의존성 설치까지만 확인)
 
 **현재 상태 (2026-09-29):** `plan` 6개 중 네트워크 5개 생성, VM은 오사카 A1 재고 부족(`500-InternalError, Out of host capacity`)으로 실패해 재시도 대기 중. 서버 배포 결과는 VM 생성 후 기록합니다.
 
