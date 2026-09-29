@@ -68,6 +68,51 @@ def test_defect_summary_tool_labels_units(db):
     assert (burr["품질이벤트_건수"], burr["불량수량_개"]) >= (1, 3)
 
 
+def test_drift_alarms_tool_labels_units(db):
+    import models
+    raised = NOW - timedelta(hours=3)
+    db.add(models.DriftAlarm(equipment_id="EQ-003", raised_ts=raised, raised_score=1.4, threshold=1.0,
+                             cleared_ts=raised + timedelta(minutes=5)))
+    db.commit()
+
+    result = execute_tool(db, "get_drift_alarms", {"equipment_ids": ["EQ-003"], **RANGE})["results"]
+    assert [r["equipment_id"] for r in result] == ["EQ-003"]
+    alarm = next(a for a in result[0]["경보_목록"] if a["시작_점수"] == 1.4)
+    assert alarm["지속시간_초"] == 300.0 and alarm["경보_중"] is False
+    assert result[0]["경보_횟수"] >= 1
+
+
+def test_daily_reports_tool_lists_missing_dates(db):
+    from datetime import date
+
+    import models
+    from sqlalchemy import text
+    db.add(models.DailyReport(report_date=date(2020, 1, 15), equipment_id="EQ-001", availability=0.5, quality_rate=0.9,
+                              oee=0.45, total_qty=100, total_defect=10, top_defect_type="burr", top_defect_events=4,
+                              top_defect_qty=6, anomaly_scored=50, anomaly_count=2, drift_alarms=1, drift_alarm_sec=120))
+    db.commit()
+    try:
+        out = execute_tool(db, "get_daily_reports",
+                           {"equipment_ids": ["EQ-001"], "start_date": "2020-01-15", "end_date": "2020-01-16"})
+        assert out["리포트_없는_날짜"] == ["2020-01-16"]
+        row = out["results"][0]
+        assert (row["report_date"], row["OEE"], row["총생산_개"], row["최다불량_수량_개"]) == ("2020-01-15", 0.45, 100, 6)
+        assert row["열화경보_지속_초"] == 120.0
+    finally:
+        db.execute(text("DELETE FROM daily_report WHERE report_date = '2020-01-15'"))
+        db.commit()
+
+
+@pytest.mark.parametrize("args, message", [
+    ({"equipment_ids": [], "start_date": "어제", "end_date": "2020-01-15"}, "형식이 잘못"),
+    ({"equipment_ids": [], "start_date": "2020-01-16", "end_date": "2020-01-15"}, "늦을 수 없습니다"),
+    ({"equipment_ids": [], "start_date": "2020-01-01", "end_date": "2020-02-15"}, "최대 31일"),
+])
+def test_daily_reports_tool_rejects_invalid_dates(db, args, message):
+    with pytest.raises(ToolError, match=message):
+        execute_tool(db, "get_daily_reports", args)
+
+
 def test_unknown_tool_is_rejected(db):
     with pytest.raises(ToolError, match="알 수 없는 도구"):
         execute_tool(db, "drop_table", {})

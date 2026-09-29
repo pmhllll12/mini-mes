@@ -57,3 +57,17 @@ def test_grade_adds_units_check_for_defect_question():
     checks = grade(item, body, now)
     assert checks["grounded"] is True   # 정답 유형은 들어 있음 (기존 채점은 통과)
     assert checks["units"] is False     # 새 검사가 단위 오류를 잡음
+
+
+def test_dates_check_for_daily_report_question():
+    now = datetime(2026, 9, 29, 1, 0, tzinfo=KST)  # KST 새벽이라 UTC로는 아직 9/28
+    item = {"expect": {"tools": ["get_daily_reports"], "equipment_ids": [], "dates": "yesterday"}}
+
+    def body(start_date, end_date):
+        return {"stop": "answer", "answer": "", "tool_calls": [{
+            "name": "get_daily_reports", "ok": True, "result": {},
+            "input": {"equipment_ids": [], "start_date": start_date, "end_date": end_date}}]}
+
+    assert grade(item, body("2026-09-28", "2026-09-28"), now)["range"] is True
+    assert grade(item, body("2026-09-27", "2026-09-27"), now)["range"] is False
+    assert grade(item, body("2026-09-28", "2026-09-29"), now)["range"] is False

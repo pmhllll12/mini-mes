@@ -197,14 +197,14 @@ curl -X POST http://localhost:8001/query -H 'Content-Type: application/json' \
 # -> answer + tool_calls: [{"name": "get_defect_summary", "input": {"equipment_ids": ["EQ-002"], "start": "...", "end": "..."}, "ok": true, "result": {...}}]
 ```
 
-- 도구 4개: `list_equipment`, `get_oee`, `get_defect_summary`, `get_anomalies` — 기존 조회 API와 같은 계산 코드를 재사용 (`api/nlq_tools.py`)
+- 도구 6개: `list_equipment`, `get_oee`, `get_defect_summary`, `get_anomalies`, `get_drift_alarms`, `get_daily_reports`(읽기 전용, 없는 날짜는 만들지 않고 알려줌) — 결과 필드 이름에 단위를 드러냄(`불량수량_개` 등), 기존 조회 API와 같은 계산 코드를 재사용 (`api/nlq_tools.py`)
 - 인자 검증: 등록된 설비만, 시간대가 있는 ISO 8601, 최대 30일. 잘못된 인자는 오류 메시지를 LLM에 돌려줘 스스로 고치게 합니다.
 - 응답에 **호출한 도구·인자·결과**를 함께 돌려줘 답변의 근거를 확인할 수 있습니다. 도구 호출은 최대 3라운드, 그 뒤에는 도구 없이 답변만 받습니다.
 - 제공자 두 가지 (`api/nlq_providers.py`): Claude(`claude-opus-5`, strict 도구, 거절 시 서버측 `fallbacks="default"`) / Gemini(`gemini-flash-latest`, 수동 function calling). 요청의 `provider`, 환경변수 `NLQ_PROVIDER`, 키가 있는 제공자 순으로 고릅니다.
 - **API 키는 `.env`에만** 넣습니다: `cp .env.example .env` 후 `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` 입력 (`.env`는 커밋되지 않음). 키가 없으면 `/query`만 503이고 다른 API는 그대로 동작합니다.
 - 메트릭: `mes_nlq_requests_total{provider,outcome}`, `mes_nlq_tool_calls_total{provider,tool,ok}` — Grafana "자연어 질의 요청", "자연어 질의 도구 호출" 패널
 
-**평가** (`evaluate/nlq_eval.py`, 질문 12개): 도구 선택, 설비·기간 인자, 도구 결과를 답변에 그대로 전했는지(근거), 없는 설비·조회 불가 항목·범위 밖 질문에 추측 없이 안내하는지를 채점합니다.
+**평가** (`evaluate/nlq_eval.py`, 질문 13개 — 아래 결과는 도구 추가 전 12개 기준, 바뀐 `drift_history`·새 `daily_report_yesterday`는 미평가): 도구 선택, 설비·기간 인자, 도구 결과를 답변에 그대로 전했는지(근거), 없는 설비·조회 불가 항목·범위 밖 질문에 추측 없이 안내하는지를 채점합니다.
 
 | 제공자 · 모델 (2026-09-28) | 평가 완료 | 통과 | 도구 선택 | 설비 인자 | 기간 인자 | 근거 | 안내 문구 | 평균 응답 |
 |---|---|---|---|---|---|---|---|---|
@@ -413,7 +413,7 @@ SERVER_IP=$(terraform output -raw public_ip) GRAFANA_ADMIN_PASSWORD=... ../../k3
 | 3주 | Prometheus + Grafana 모니터링 스택 추가 (`/metrics`, 대시보드 프로비저닝) | ✅ |
 | 4주 | Helm 차트 작성 + k3d 로컬 검증 (Secret/PVC/probe, 서버 배포 대상은 미정). 5주차 이후 anomaly-worker(Deployment·모델 PVC·메트릭 Service), Prometheus·Grafana도 차트에 추가 | ✅ |
 | 5주 | 이상탐지(예지보전) 워커: 설비별 Isolation Forest + robust z-score(정상 데이터만 학습), `/anomalies` API, 급변·열화 경보 분리, 워커 메트릭·Grafana 패널, 시뮬레이터 라벨 기반 성능 평가(가상 데이터 기준 급변 F1 v1 0.525 → v2 0.959), 워커 단위 테스트·CI | ✅ |
-| 6주 | 자연어 질의 API(`POST /query`, Claude·Gemini function calling, 읽기 전용 도구 4개, 근거 반환), 평가 스크립트 — Gemini 12/12 통과(건수·수량 혼동은 도구 필드 이름 수정 후 2회 확인), Claude 미평가 | ✅ |
+| 6주 | 자연어 질의 API(`POST /query`, Claude·Gemini function calling, 읽기 전용 도구 4개(09-29에 열화 경보·일일 리포트 추가해 6개), 근거 반환), 평가 스크립트 — Gemini 12/12 통과(건수·수량 혼동은 도구 필드 이름 수정 후 2회 확인), Claude 미평가 | ✅ |
 | 7주 | Terraform(Oracle Cloud: VCN·보안 목록·A1 VM + cloud-init K3s), CI에서 amd64/arm64 이미지를 GHCR에 푸시·Terraform 검사, 문서화·데모 영상 — VM은 재고 부족으로 생성 대기 | 진행 중 |
 
 ## 알려진 한계

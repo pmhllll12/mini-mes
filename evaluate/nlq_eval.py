@@ -3,7 +3,7 @@
 
 질문 세트(nlq_questions.json)를 제공자별로 /query에 보내고 채점한다.
 - 도구 선택: 기대한 도구가 성공(ok)으로 한 번 이상 호출됐는가
-- 인자: 그 호출의 equipment_ids(빈 배열 = 전체)와 기간(start/end)이 기대와 맞는가
+- 인자: 그 호출의 equipment_ids(빈 배열 = 전체)와 기간(start/end, 일일 리포트는 start_date/end_date)이 기대와 맞는가
     today = 오늘 00:00(KST)부터 현재(또는 내일 00:00)까지, yesterday = 어제 00:00~오늘 00:00,
     last_Nh = 현재-N시간~현재 (허용 오차 10분)
 - 근거(truth): 설비·기간이 맞게 호출된 도구 결과의 정답(최다 불량 유형, 이상 최다 설비)이 답변에 그대로 들어 있는가
@@ -44,6 +44,12 @@ def range_ok(args: dict, kind: str, now: datetime) -> bool:
         return False
     exp_start, (end_lo, end_hi) = expected_range(kind, now)
     return abs(start - exp_start) <= TOLERANCE and end_lo - TOLERANCE <= end <= end_hi + TOLERANCE
+
+
+def dates_ok(args: dict, kind: str, now: datetime) -> bool:
+    """일일 리포트 날짜 인자 (KST 날짜). yesterday = 어제 하루"""
+    expected = {"yesterday": (now - timedelta(days=1)).date(), "today": now.date()}[kind]
+    return args.get("start_date") == args.get("end_date") == expected.isoformat()
 
 
 def equipment_ok(args: dict, expected: list) -> bool:
@@ -91,6 +97,8 @@ def grade(item: dict, body: dict, now: datetime) -> dict:
             checks["equipment"] = any(equipment_ok(c["input"], expect["equipment_ids"]) for c in matching)
         if "range" in expect:
             checks["range"] = any(range_ok(c["input"], expect["range"], now) for c in matching)
+        if "dates" in expect:  # 표에서는 기간 인자와 같은 칸으로 집계
+            checks["range"] = any(dates_ok(c["input"], expect["dates"], now) for c in matching)
     answer = body.get("answer", "")
     if "truth" in expect:
         # 근거: 설비·기간이 맞게 호출된 도구 결과의 정답이 답변에 그대로 들어 있는가 (없으면 "없다"고 답해야 함)
