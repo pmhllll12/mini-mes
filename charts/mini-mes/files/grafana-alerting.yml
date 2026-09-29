@@ -12,7 +12,25 @@ contactPoints:
         settings:
           url: $DISCORD_WEBHOOK_URL
           use_discord_username: false
+          title: '{{ template "mini-mes.title" . }}'
+          message: '{{ template "mini-mes.message" . }}'
         disableResolveMessage: false
+
+# 알림 문구: 휴대폰 알림에서 읽기 쉽게 제목 한 줄 + 설비별 요약·조회 경로만 (Source·Silence 링크 제외)
+# 주의: 이 파일은 $이름을 환경변수로 치환하므로 템플릿에서 $ 변수를 쓰지 않는다
+templates:
+  - orgId: 1
+    name: mini-mes
+    template: |
+      {{ define "mini-mes.title" -}}
+      {{ if eq .Status "firing" }}🔴{{ else }}✅ 해소 ·{{ end }} {{ .CommonLabels.alertname }}{{ if .CommonLabels.equipment_id }} · {{ .CommonLabels.equipment_id }}{{ end }}{{ if eq .CommonLabels.severity "critical" }} [긴급]{{ end }}
+      {{- end }}
+      {{ define "mini-mes.message" -}}
+      {{ range .Alerts.Firing }}{{ .Annotations.summary }}
+      {{ .Annotations.description }}
+      {{ end }}{{ range .Alerts.Resolved }}해소됨: {{ .Annotations.summary }}
+      {{ end }}
+      {{- end }}
 
 policies:
   - orgId: 1
