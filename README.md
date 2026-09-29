@@ -26,7 +26,7 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 | 다운로드 후 엑셀에서 재가공 | 조건에 맞는 CSV를 바로 내려받는 export API | 구현 |
 | 사람이 매번 조작해야 해서 자동화 불가 | REST API 제공 | 구현 |
 | 원하는 정보를 말로 묻고 싶음 | 자연어 질의 `POST /query` (LLM function calling, 읽기 전용 도구) | 구현 |
-| 같은 리포트를 반복해서 수동 추출 | 예약 리포트 자동 발송 | 예정 |
+| 같은 리포트를 반복해서 수동 추출 | 예약 리포트: 매일 새벽 전날 설비별 요약을 DB에 스냅샷으로 저장(K8s CronJob), 기간·설비 지정 조회·CSV (메일 발송은 미구현) | 구현 |
 
 ## 구현된 API
 
@@ -40,6 +40,8 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 | GET | `/oee?equipment_ids=&hours=` | 여러 설비(생략 시 전체) OEE 일괄 조회 |
 | GET | `/quality/defect-summary?equipment_ids=&hours=` | 설비별·불량유형별 불량 집계 |
 | GET | `/anomalies?equipment_ids=&hours=` | 여러 설비(생략 시 전체) 이상탐지 결과 일괄 조회 (판정 건수, 이상 건수, 최대 점수, 이상 판정 목록) |
+| POST | `/reports/daily?date=` | 일일 리포트 생성·저장 (KST 하루, 생략 시 어제, 끝난 날짜만, 같은 날짜는 덮어씀). Helm CronJob이 매일 00:10 KST 호출 |
+| GET | `/reports/daily?equipment_ids=&start_date=&end_date=&format=json\|csv` | 저장된 일일 리포트 조회 (기본 최근 7일): 설비별 가동률·양품률·OEE, 생산·불량 수량, 최다 불량 유형(건수·수량), 급변 이상 건수, 열화 경보 횟수·시간 |
 | GET | `/drift-alarms?equipment_ids=&hours=&format=json\|csv` | 기간과 겹치는 열화 경보 이력 (시작·해제 시각, 진행 중 여부, 지속 시간, 시작 점수), `format=csv`면 바로 내려받기 |
 | GET | `/export/production-logs?equipment_ids=&start=&end=` | 생산실적 CSV 다운로드 |
 | POST | `/query` | 자연어 질의 — LLM이 읽기 전용 도구를 호출해 답변 + 근거(호출한 도구·인자·결과) 반환 (API 키 필요) |
@@ -96,6 +98,10 @@ curl "http://localhost:8001/anomalies?hours=1"
 
 # 전체 설비 생산실적을 CSV로
 curl "http://localhost:8001/export/production-logs?start=2020-01-01T00:00:00Z" -o report.csv
+
+# 일일 리포트: 어제(KST) 분 생성 → 최근 7일을 CSV로 (Helm에서는 CronJob이 매일 00:10에 생성, compose에서는 직접 호출)
+curl -X POST "http://localhost:8001/reports/daily"
+curl "http://localhost:8001/reports/daily?format=csv" -o daily_report.csv
 ```
 
 ```json
@@ -337,7 +343,8 @@ minikube를 쓴다면 2)의 `k3d image import` 대신 `minikube image load mini-
 - 워커: 설치 직후 `모델 없음` 대기 → `kubectl exec`로 정상 데이터 학습 → 이상 섞인 데이터 판정·기록 → 워커 파드를 지워도 새 파드가 PVC에서 모델을 다시 읽고 이미 판정한 건은 다시 기록하지 않음
 - 모니터링: 파드 5개(db·api·워커·Prometheus·Grafana) Running, 스크레이프 대상 api·워커 모두 up, Grafana에 대시보드(패널 9개) 로드·조회 성공
 - Prometheus 영속성(차트 0.3.2): PVC 모드에서 파드를 지우고 새 파드가 떠도 가장 오래된 샘플 시각이 그대로(06:45:12, 새 파드 시작 06:47:02, WAL 재생 정상). 대조로 emptyDir 모드에서는 새 파드 시작 이후 샘플만 남음
-- 정적 검증: `helm lint` 통과, 렌더링된 리소스 19개 kubeconform(strict) 통과 (Prometheus PVC 끄면 18개, `monitoring.enabled=false`면 10개)
+- 예약 리포트(차트 0.6.0, 2026-09-29, k3s v1.36.4): CronJob `mini-mes-daily-report`(`10 0 * * *`, `timeZone: Asia/Seoul`) 등록, `kubectl create job --from=cronjob/...`로 수동 실행 → Job 완료, 전날(9/28) 설비 3대 행이 `daily_report`에 저장 (빈 DB라 수치 0). 정해진 시각의 자동 실행과 API가 실패했을 때 Job 실패 처리는 아직 확인하지 않음
+- 정적 검증: `helm lint` 통과, 렌더링된 리소스 20개 kubeconform(strict) 통과 (차트 0.6.0 기준, CronJob 포함. Prometheus PVC 끄면 19개, `monitoring.enabled=false`면 11개)
 - 자연어 질의 키(차트 0.4.0): api 컨테이너가 `<release>-llm` Secret(`nlq.existingSecret`로 변경 가능)의 `ANTHROPIC_API_KEY`·`GEMINI_API_KEY`를 `optional` 참조 — Secret이 없으면 api는 정상 동작하고 `/query`만 503. 제공자·모델은 `nlq.provider`, `nlq.claudeModel`, `nlq.geminiModel`. k3d 확인: Secret 없이 파드 5개 재시작 0회·`/health` 200·`/query` 503 → `.env`로 Secret 생성·api 재시작 후 파드에 `GEMINI_API_KEY` 주입(값은 출력하지 않고 길이만 확인), `/query`가 Gemini까지 도달(당일 무료 한도 소진으로 429 응답 — 답변 생성까지는 미확인)
 
 ## Oracle Cloud K3s 배포 (Terraform, 진행 중)

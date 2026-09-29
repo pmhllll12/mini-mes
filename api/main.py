@@ -3,7 +3,7 @@ import io
 import os
 import time
 from dataclasses import asdict
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import FastAPI, Depends, HTTPException, Query, Request, Response
@@ -18,6 +18,7 @@ import schemas
 from oee import calculate_oee
 from quality import calculate_defect_summary
 from anomaly import DRIFT_ALARM_CSV_COLUMNS, list_drift_alarms, summarize_anomalies
+from report import REPORT_COLUMNS, build_daily_report, load_daily_reports, save_daily_report, yesterday_kst
 from nlq_providers import ClaudeProvider, GeminiProvider, NLQProviderError, user_message
 from nlq_tools import TOOL_NAMES, ToolError, execute_tool
 
@@ -326,6 +327,63 @@ def natural_language_query(payload: schemas.QueryIn, db: Session = Depends(get_d
         raise HTTPException(status_code=502, detail=str(e))
     NLQ_REQUESTS.labels(provider.name, result.stop).inc()
     return asdict(result)
+
+
+# ---------- 일일 리포트 (예약 리포트) ----------
+
+@app.post("/reports/daily", response_model=List[schemas.DailyReportOut])
+def create_daily_report(
+    report_date: Optional[date] = Query(None, alias="date", description="KST 날짜 (생략 시 어제). 끝난 날짜만"),
+    db: Session = Depends(get_db),
+):
+    """전체 설비의 하루(KST) 요약을 계산해 daily_report에 저장 (같은 날짜는 덮어씀).
+    Helm 차트의 CronJob이 매일 새벽 인자 없이 호출해 전날 리포트를 만든다.
+    """
+    yesterday = yesterday_kst()
+    report_date = report_date or yesterday
+    if report_date > yesterday:
+        raise HTTPException(status_code=400, detail=f"아직 끝나지 않은 날짜입니다 (생성 가능한 마지막 날짜: {yesterday})")
+
+    targets = _resolve_equipment_ids(db, None)
+    if not targets:
+        raise HTTPException(status_code=404, detail="no equipment registered")
+    return save_daily_report(db, build_daily_report(db, report_date, targets))
+
+
+@app.get("/reports/daily", response_model=List[schemas.DailyReportOut])
+def get_daily_reports(
+    equipment_ids: Optional[List[str]] = Query(
+        None, description="비워두면 등록된 모든 설비를 대상으로 함 (?equipment_ids=EQ-001&equipment_ids=EQ-002)"
+    ),
+    start_date: Optional[date] = Query(None, description="생략 시 end_date 6일 전 (최근 7일)"),
+    end_date: Optional[date] = Query(None, description="생략 시 어제 (KST)"),
+    format: str = Query("json", pattern="^(json|csv)$", description="csv면 바로 내려받기"),
+    db: Session = Depends(get_db),
+):
+    """저장된 일일 리포트 조회 (생성된 날짜만 나옴). 여러 날짜·여러 설비를 한 번에"""
+    end_date = end_date or yesterday_kst()
+    start_date = start_date or (end_date - timedelta(days=6))
+    if start_date > end_date:
+        raise HTTPException(status_code=400, detail="start_date가 end_date보다 늦습니다")
+
+    reports = load_daily_reports(db, start_date, end_date, _resolve_equipment_ids(db, equipment_ids))
+    if format == "json":
+        return reports
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(REPORT_COLUMNS)
+    for r in reports:
+        writer.writerow([
+            v.isoformat() if isinstance(v, (date, datetime)) else ("" if v is None else v)
+            for v in (getattr(r, c) for c in REPORT_COLUMNS)
+        ])
+    buffer.seek(0)
+    return StreamingResponse(
+        buffer,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=daily_report_{start_date}_{end_date}.csv"},
+    )
 
 
 @app.get("/export/production-logs")

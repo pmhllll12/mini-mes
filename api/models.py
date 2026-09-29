@@ -1,5 +1,5 @@
 from sqlalchemy import (
-    Column, String, Integer, Numeric, Boolean, TIMESTAMP, BigInteger, ForeignKey, text
+    Column, String, Integer, Numeric, Boolean, Date, TIMESTAMP, BigInteger, ForeignKey, text
 )
 from database import Base
 
@@ -46,6 +46,26 @@ class AnomalyResult(Base):
     ts = Column(TIMESTAMP(timezone=True), server_default=text("now()"))
     anomaly_score = Column(Numeric(10, 4), nullable=False)
     is_anomaly = Column(Boolean, default=False)
+
+
+class DailyReport(Base):
+    __tablename__ = "daily_report"
+
+    report_date = Column(Date, primary_key=True)
+    equipment_id = Column(String(20), ForeignKey("equipment.equipment_id"), primary_key=True)
+    availability = Column(Numeric(6, 4), nullable=False)
+    quality_rate = Column(Numeric(6, 4), nullable=False)
+    oee = Column(Numeric(6, 4), nullable=False)
+    total_qty = Column(Integer, nullable=False)
+    total_defect = Column(Integer, nullable=False)
+    top_defect_type = Column(String(50))
+    top_defect_events = Column(Integer, nullable=False)
+    top_defect_qty = Column(Integer, nullable=False)
+    anomaly_scored = Column(Integer, nullable=False)
+    anomaly_count = Column(Integer, nullable=False)
+    drift_alarms = Column(Integer, nullable=False)
+    drift_alarm_sec = Column(Numeric(12, 1), nullable=False)
+    generated_at = Column(TIMESTAMP(timezone=True), server_default=text("now()"), nullable=False)
 
 
 class DriftAlarm(Base):

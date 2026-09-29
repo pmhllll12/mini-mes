@@ -39,6 +39,13 @@ anomalyWorker:
   metricsPort: 9100
   modelStorage: 100Mi
 
+# 예약 리포트 - 매일 전날(KST) 설비별 OEE·불량·이상·열화 경보 요약을 daily_report에 저장 (GET /reports/daily로 조회)
+report:
+  enabled: true
+  schedule: "10 0 * * *"   # 00:10 - 자정 직전 데이터가 들어올 여유
+  timeZone: Asia/Seoul
+  image: curlimages/curl:8.22.0
+
 # 모니터링 - Prometheus(api·워커 스크레이프) + Grafana(대시보드 프로비저닝). docker-compose의 monitoring/ 구성과 동일
 # files/grafana-dashboard.json은 monitoring/grafana/dashboards/mini-mes.json의 복사본 (CI에서 동기화 검사)
 monitoring:

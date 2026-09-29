@@ -26,6 +26,7 @@ TRACKED_MODELS = {
     models.AnomalyResult: "anomaly_result_ids",
     models.DriftAlarm: "drift_alarm_ids",
 }
+# 복합 기본키(report_date, equipment_id)라 after_insert로 추적하지 않는다 - 리포트 테스트는 전용 과거 날짜를 쓰고 직접 지운다
 
 
 @pytest.fixture(autouse=True)

@@ -7,7 +7,7 @@
 FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana, GitHub Actions, Helm(k3d 로컬 검증), scikit-learn(Isolation Forest), Terraform(Oracle Cloud)
 
 ## 구조
-- api/ : FastAPI 앱 (main.py, models.py, schemas.py, oee.py, quality.py, anomaly.py, metrics.py, database.py, nlq_tools.py 자연어 질의 읽기 전용 도구, nlq_providers.py Claude·Gemini 어댑터)
+- api/ : FastAPI 앱 (main.py, models.py, schemas.py, oee.py, quality.py, anomaly.py, metrics.py, database.py, report.py 일일 리포트, nlq_tools.py 자연어 질의 읽기 전용 도구, nlq_providers.py Claude·Gemini 어댑터)
 - api/tests/ : pytest 테스트 (Postgres 필요, db/schema.sql 적용된 DB 대상). conftest.py의 autouse fixture가 테스트 프로세스가 넣은 행(after_insert 추적)과 워커가 그 로그를 판정한 결과를 지우고 설비 status를 복원 (KEEP_TEST_DATA=1이면 유지)
 - anomaly-worker/ : 이상탐지 워커 컨테이너 (features.py 특징 추출, model.py 설비별 Isolation Forest + robust z-score 결합(v2, v1 번들도 호환), features.py build_features(--rolling-window 이동 구간 특징, 기본 꺼짐), train.py 학습 CLI, worker.py 주기 추론 + :9100 메트릭 + 급변/열화 경보 분리, db.py). 모델은 anomaly_models 볼륨(/models)에 저장. tests/는 DB 없이 실행
 - evaluate/nlq_eval.py + nlq_questions.json : 자연어 질의 평가(도구 선택·인자·근거·안내 문구). 실제 LLM 호출이라 비용·무료 한도 소모 → 실행 전 사용자 확인
@@ -39,7 +39,7 @@ FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana, GitHub 
 - 설비를 하나씩 조회하지 않고 다중/전체 설비를 한 번에 조회 (equipment_ids 파라미터)
 - 화면 조작 없이 API로 조건 지정 + CSV 바로 내보내기
 - 자연어 질의는 LLM이 SQL을 만들지 않고 검증된 읽기 전용 도구만 호출, 응답에 근거(도구·인자·결과) 포함
-- 예정: 예약 리포트
+- 예약 리포트: api/report.py가 KST 하루 설비별 요약을 daily_report에 스냅샷(덮어쓰기), POST/GET /reports/daily, 차트 CronJob(curl, 00:10 Asia/Seoul). 메일 발송은 없음
 
 ## 로드맵
 1주 코어 API/시뮬레이터 → 2주 OEE 고도화 → 3주 모니터링 → 4주 K3s/Helm (완료)

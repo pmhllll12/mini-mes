@@ -1,0 +1,41 @@
+{{- if .Values.report.enabled }}
+# 예약 리포트: 매일 새벽 전날(KST) 일일 리포트를 생성해 daily_report에 저장 (POST /reports/daily, 인자 없음 = 어제)
+# 조회: GET /reports/daily?format=csv
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "mini-mes.fullname" . }}-daily-report
+  labels:
+    {{- include "mini-mes.labels" . | nindent 4 }}
+    app.kubernetes.io/component: daily-report
+spec:
+  schedule: {{ .Values.report.schedule | quote }}
+  timeZone: {{ .Values.report.timeZone | quote }}
+  concurrencyPolicy: Forbid
+  # 노드가 꺼져 있던 동안 놓친 실행은 이 시간 안이면 뒤늦게라도 실행
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        metadata:
+          labels:
+            {{- include "mini-mes.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: daily-report
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: report
+              image: {{ .Values.report.image }}
+              args:
+                - --fail-with-body
+                - --silent
+                - --show-error
+                - --max-time
+                - "120"
+                - -X
+                - POST
+                - http://{{ include "mini-mes.fullname" . }}-api:{{ .Values.api.service.port }}/reports/daily
+{{- end }}

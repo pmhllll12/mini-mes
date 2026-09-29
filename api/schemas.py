@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -78,6 +78,27 @@ class AnomalySummary(BaseModel):
     max_score: Optional[float]    # 기간 내 최대 이상 점수 (판정 0건이면 null)
     last_scored_ts: Optional[datetime]
     anomalies: List[AnomalyPoint]  # is_anomaly = true 인 건 (최신순)
+
+
+class DailyReportOut(BaseModel):
+    """일일 리포트 1행 (설비 1대 x KST 하루, daily_report 스냅샷)"""
+    model_config = ConfigDict(from_attributes=True)
+
+    report_date: date
+    equipment_id: str
+    availability: float
+    quality_rate: float
+    oee: float
+    total_qty: int
+    total_defect: int
+    top_defect_type: Optional[str]  # 이벤트 건수 최다 불량 유형 (없으면 null)
+    top_defect_events: int          # 그 유형의 품질 이벤트 건수
+    top_defect_qty: int             # 그 유형 이벤트에 연결된 불량 수량(개)
+    anomaly_scored: int
+    anomaly_count: int
+    drift_alarms: int               # 이날 시작한 열화 경보 수
+    drift_alarm_sec: float          # 이날 열화 경보가 켜져 있던 시간 합(초)
+    generated_at: datetime
 
 
 class DriftAlarmOut(BaseModel):

@@ -70,3 +70,23 @@ INSERT INTO equipment (equipment_id, name, line_id, status) VALUES
     ('EQ-002', 'CNC 가공기 2호', 'LINE-A', 'idle'),
     ('EQ-003', '포장 설비 1호', 'LINE-B', 'idle')
 ON CONFLICT (equipment_id) DO NOTHING;
+
+-- 일일 리포트 스냅샷 (POST /reports/daily, Helm CronJob이 매일 전날분 생성). KST 하루 기준, 같은 날짜를 다시 만들면 덮어씀
+CREATE TABLE IF NOT EXISTS daily_report (
+    report_date       DATE NOT NULL,
+    equipment_id      VARCHAR(20) NOT NULL REFERENCES equipment(equipment_id),
+    availability      NUMERIC(6,4) NOT NULL,
+    quality_rate      NUMERIC(6,4) NOT NULL,
+    oee               NUMERIC(6,4) NOT NULL,
+    total_qty         INTEGER NOT NULL,
+    total_defect      INTEGER NOT NULL,
+    top_defect_type   VARCHAR(50),              -- 이벤트 건수 최다 불량 유형 (없으면 NULL)
+    top_defect_events INTEGER NOT NULL,         -- 그 유형의 품질 이벤트 건수
+    top_defect_qty    INTEGER NOT NULL,         -- 그 유형 이벤트에 연결된 불량 수량(개)
+    anomaly_scored    INTEGER NOT NULL,         -- 급변 판정 건수
+    anomaly_count     INTEGER NOT NULL,         -- 그중 이상
+    drift_alarms      INTEGER NOT NULL,         -- 이날 시작한 열화 경보 수
+    drift_alarm_sec   NUMERIC(12,1) NOT NULL,   -- 이날 열화 경보가 켜져 있던 시간 합(초)
+    generated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (report_date, equipment_id)
+);
