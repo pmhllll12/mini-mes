@@ -43,7 +43,7 @@ FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana, GitHub 
 
 ## 로드맵
 1주 코어 API/시뮬레이터 → 2주 OEE 고도화 → 3주 모니터링 → 4주 K3s/Helm (완료)
-→ 5주 이상탐지(Isolation Forest) (완료) → 6주 자연어 질의 (구현, 평가 일부) → 7주 Terraform/CI-CD/문서화 (진행 중: Terraform 작성·네트워크 생성, A1 VM 재고 대기)
+→ 5주 이상탐지(Isolation Forest) (완료) → 6주 자연어 질의 (완료: Gemini 12/12, 건수·수량 혼동 남음, Claude 미평가) → 7주 Terraform/CI-CD/문서화 (진행 중: Terraform 작성·네트워크 생성, A1 VM 재고 대기)
 
 ## 알려진 이슈
 - (해결됨, 2주차) production_log.qty_defect 와 quality_event 가 서로 연결되어 있지 않던 문제 → quality_event.production_log_id(nullable FK) 추가, `/quality/defect-summary` API로 설비별·불량유형별 집계 제공
