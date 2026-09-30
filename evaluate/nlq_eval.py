@@ -13,7 +13,9 @@
     불량 수량을 "건"으로, 이벤트 건수를 "개"로 말하면 실패 (두 값이 같으면 어느 쪽도 허용, 숫자가 없으면 통과)
 - 언어(language, 모든 질문): 한국어로 답했는가. 한글이 있고 한자는 한글의 1/5 이하 (중국어 답변 방지)
 - 설비 언급(ids, 설비를 기대하는 질문): 답변에 나온 설비 ID가 기대 설비(전체면 등록된 설비)나 질문에 나온 ID뿐인가.
-    틀린 설비를 해당 설비라고 말하거나 없는 ID를 지어내면 실패
+    틀린 설비를 해당 설비라고 말하거나 없는 ID를 지어내면 실패. 비교 질문(기대 설비 2개 이상)은 기대 설비를 모두 언급해야 함
+- 필드 나열(no_dump, 도구를 호출한 질문): 도구 결과의 필드명(밑줄이 든 키, 예: scored_count) 3개 이상을 답변에 그대로 쓰면 실패.
+    질문에 답하지 않고 결과 JSON 구조를 설명하는 답변을 잡는다
 
 사용법 (API가 키를 갖고 떠 있어야 함):
     python3 evaluate/nlq_eval.py --providers claude gemini --api-url http://localhost:8001
@@ -84,9 +86,32 @@ def language_ok(answer: str) -> bool:
 
 
 def ids_ok(answer: str, question: str, expected: list) -> bool:
-    """답변이 언급한 설비 ID가 기대 설비(빈 목록이면 등록된 전체)나 질문에 나온 ID 안에 있는가"""
+    """답변이 언급한 설비 ID가 기대 설비(빈 목록이면 등록된 전체)나 질문에 나온 ID 안에 있는가.
+    비교 질문(기대 설비 2개 이상)은 기대 설비를 빠짐없이 언급해야 한다"""
     allowed = set(expected or REGISTERED) | set(EQUIPMENT_ID.findall(question))
-    return set(EQUIPMENT_ID.findall(answer)) <= allowed
+    mentioned = set(EQUIPMENT_ID.findall(answer))
+    return mentioned <= allowed and (len(expected) < 2 or set(expected) <= mentioned)
+
+
+DUMP_KEYS_LIMIT = 3
+
+
+def result_keys(value) -> set:
+    """도구 결과(JSON)에 나온 키 중 밑줄이 든 것 (일반 단어와 겹치지 않는 필드명)"""
+    if isinstance(value, dict):
+        keys = {k for k in value if "_" in k}
+        for v in value.values():
+            keys |= result_keys(v)
+        return keys
+    if isinstance(value, list):
+        return set().union(*(result_keys(v) for v in value)) if value else set()
+    return set()
+
+
+def no_dump_ok(answer: str, calls: list) -> bool:
+    """도구 결과의 필드명을 DUMP_KEYS_LIMIT개 이상 그대로 쓰지 않았는가 (답 대신 결과 구조를 설명하는 답변 방지)"""
+    keys = result_keys([c.get("result") for c in calls])
+    return sum(k in answer for k in keys) < DUMP_KEYS_LIMIT
 
 
 UNIT_NUMBER = re.compile(r"(\d[\d,]*)\s*(건|개)")
@@ -137,6 +162,8 @@ def grade(item: dict, body: dict, now: datetime) -> dict:
         checks["answer"] = any(w in answer for w in expect["answer_mentions_any"])
     if "equipment_ids" in expect:
         checks["ids"] = ids_ok(answer, item.get("question", ""), expect["equipment_ids"])
+    if ok_calls:
+        checks["no_dump"] = no_dump_ok(answer, ok_calls)
     checks["language"] = language_ok(answer)
     checks["completed"] = body.get("stop") == "answer"
     return checks
@@ -181,8 +208,8 @@ def main():
             print(f"[{provider}] {item['id']:<20} {'PASS' if passed else 'FAIL'} {elapsed:5.1f}s "
                   f"{ {k: v for k, v in checks.items() if not k.startswith('_')} }")
 
-    print("\n| 제공자 | 모델 | 통과 | 도구 선택 | 설비 인자 | 기간 인자 | 근거(정답 포함) | 단위 | 설비 언급 | 언어 | 안내 문구 | 평균 응답(초) |")
-    print("|---|---|---|---|---|---|---|---|---|---|---|---|")
+    print("\n| 제공자 | 모델 | 통과 | 도구 선택 | 설비 인자 | 기간 인자 | 근거(정답 포함) | 단위 | 설비 언급 | 필드 나열 없음 | 언어 | 안내 문구 | 평균 응답(초) |")
+    print("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for provider in args.providers:
         rows = [r for r in report if r["provider"] == provider]
 
@@ -191,7 +218,7 @@ def main():
             return f"{sum(vals)}/{len(vals)}" if vals else "-"
         model = next((r["model"] for r in rows if r["model"]), "-")
         print(f"| {provider} | {model} | {sum(r['passed'] for r in rows)}/{len(rows)} | {rate('tool')} | {rate('equipment')} | "
-              f"{rate('range')} | {rate('grounded')} | {rate('units')} | {rate('ids')} | {rate('language')} | {rate('answer')} | {sum(r['seconds'] for r in rows) / len(rows):.1f} |")
+              f"{rate('range')} | {rate('grounded')} | {rate('units')} | {rate('ids')} | {rate('no_dump')} | {rate('language')} | {rate('answer')} | {sum(r['seconds'] for r in rows) / len(rows):.1f} |")
     if args.out:
         json.dump(report, open(args.out, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
 

@@ -92,3 +92,25 @@ def test_ids_check_rejects_wrong_or_invented_equipment():
     assert ids_ok("LINE-B의 포장 설비 1호(EQ-003) OEE는 0.8713입니다.", question, ["EQ-003"])
     assert ids_ok("EQ-001은 0.9, EQ-003은 0.8입니다.", "오늘 전체 설비 OEE 알려줘", [])  # 전체면 등록된 설비 허용
     assert ids_ok("EQ-009는 등록되지 않은 설비 ID입니다.", "EQ-009의 오늘 OEE 알려줘", [])  # 질문에 나온 ID 허용
+
+
+def test_ids_check_requires_all_compared_equipment():
+    from nlq_eval import ids_ok
+    question = "최근 1시간 EQ-001과 EQ-003의 이상 탐지 결과 비교해줘"
+    # 2026-09-30 로컬 모델의 실제 답변 앞부분 (compare_anomaly, EQ-001을 EQ-003으로 혼동)
+    assert not ids_ok("설비 EQ-003와 EQ-003의 이상 감지 정보를 제공합니다: - 설비 EQ-003: 검출한 이상 수 458",
+                      question, ["EQ-001", "EQ-003"])
+    assert ids_ok("EQ-001은 12건, EQ-003은 8건으로 EQ-001이 더 많습니다.", question, ["EQ-001", "EQ-003"])
+    assert ids_ok("포장 설비 1호의 OEE는 0.87입니다.", "LINE-B 설비들의 최근 1시간 OEE는?", ["EQ-003"])  # 1개는 ID 생략 허용
+
+
+def test_no_dump_check_rejects_answer_describing_result_fields():
+    from nlq_eval import no_dump_ok
+    calls = [{"name": "get_anomalies", "ok": True, "result": {"results": [
+        {"equipment_id": "EQ-001", "period_start": "...", "scored_count": 819, "anomaly_count": 335,
+         "max_score": 330.0, "anomalies": [{"ts": "...", "anomaly_score": 1.02}], "목록에서_생략된_이상_건수": 315}]}}]
+    # 2026-09-30 로컬 모델의 실제 답변 요약 (anomaly_top_24h, 질문에 답하지 않고 필드를 설명)
+    dump = ("1. **equipment_id**: 장비 식별 정보 2. **period_start & period_end**: 시간 구간 "
+            "3. **scored_count**: 측정된 데이터 수 4. **anomaly_count**: 이상 데이터 수 EQ-003")
+    assert not no_dump_ok(dump, calls)
+    assert no_dump_ok("최근 24시간 이상이 가장 많은 설비는 EQ-001(335건)입니다. anomaly_count 기준입니다.", calls)
