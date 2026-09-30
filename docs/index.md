@@ -13,7 +13,7 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 - 자연어 질의 설계와 평가: [자연어 질의]({{ '/nlq/' | relative_url }})
 - 배포 구성·보안 설계·CI/CD·검증 기록: [인프라]({{ '/infra/' | relative_url }})
 
-> **현재 상태:** 7주차 진행 중 — 핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링·Discord 알림, GitHub Actions CI, Helm 차트 + k3d 로컬 검증, 이상탐지 워커 + 가상 데이터 기준 성능 평가, 자연어 질의 API(Gemini 12/12 통과, Claude 미평가), 예약 리포트.
+> **현재 상태:** 7주차 진행 중 — 핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링·Discord 알림, GitHub Actions CI, Helm 차트 + k3d 로컬 검증, 이상탐지 워커 + 가상 데이터 기준 성능 평가, 자연어 질의 API(Gemini 13/13 통과, Claude 미평가), 예약 리포트.
 > 7주차: K3s 서버는 Oracle Cloud 상시 무료 ARM VM(오사카)으로 정하고 Terraform 코드를 작성했습니다. 네트워크는 생성됐지만 VM은 무료 ARM 재고 부족("Out of host capacity")으로 아직 생성 대기 중입니다.
 
 ## 배경
@@ -52,7 +52,7 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 | 수집 | `POST /production-logs`(생산실적), `POST /quality-events`(불량 유형·심각도, 생산실적 건과 연결) |
 | 조회·집계 | `/oee`, `/quality/defect-summary`, `/anomalies`, `/drift-alarms` — 모두 `equipment_ids` 생략 시 전체 설비를 한 번에 조회 |
 | 내보내기 | `/export/production-logs` — 조건(기간·설비)을 넘기면 바로 CSV |
-| 자연어 질의 | `POST /query` — LLM(Claude·Gemini)이 읽기 전용 도구 6개를 골라 호출하고 답변과 근거(도구·인자·결과)를 반환. Gemini 12/12 통과 |
+| 자연어 질의 | `POST /query` — LLM(Claude·Gemini)이 읽기 전용 도구 6개를 골라 호출하고 답변과 근거(도구·인자·결과)를 반환. Gemini 13/13 통과 |
 | 이상탐지 | 설비별 Isolation Forest 워커(별도 컨테이너), 정상 데이터만 학습, 모델은 볼륨에 저장 |
 | 모니터링 | API·워커 `/metrics` → Prometheus → Grafana 대시보드 (프로비저닝 파일로 자동 구성) |
 | CI | GitHub Actions: ruff, API 테스트(Postgres 서비스 컨테이너), 워커 단위 테스트, API·워커 이미지 빌드 |
@@ -85,5 +85,5 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 | 3주 | Prometheus + Grafana 모니터링 스택 | ✅ |
 | 4주 | Helm 차트 + k3d 로컬 검증 | ✅ |
 | 5주 | 이상탐지(예지보전) 워커, `/anomalies` API, 워커 메트릭·Grafana 패널, 라벨 기반 성능 평가, CI | ✅ |
-| 6주 | 자연어 질의 API (Claude·Gemini function calling) — Gemini 12/12 통과, Claude 미평가 | ✅ |
+| 6주 | 자연어 질의 API (Claude·Gemini function calling) — Gemini 13/13 통과, Claude 미평가 | ✅ |
 | 7주 | Terraform(Oracle Cloud), GHCR 멀티아키텍처 이미지, 문서화·데모 영상 | 진행 중 |

@@ -82,6 +82,20 @@ def test_drift_alarms_tool_labels_units(db):
     assert result[0]["경보_횟수"] >= 1
 
 
+def test_tool_results_use_kst_timestamps(db):
+    """DB 시각(UTC)을 KST로 돌려준다 - 09-30 평가에서 UTC 시각을 KST 기간 밖으로 오해해 "경보 없음"이라고 답함"""
+    import models
+    raised = NOW - timedelta(hours=2)
+    db.add(models.DriftAlarm(equipment_id="EQ-003", raised_ts=raised, raised_score=1.7, threshold=1.0,
+                             cleared_ts=raised + timedelta(minutes=1)))
+    db.commit()
+
+    result = execute_tool(db, "get_drift_alarms", {"equipment_ids": ["EQ-003"], **RANGE})["results"]
+    alarm = next(a for a in result[0]["경보_목록"] if a["시작_점수"] == 1.7)
+    assert alarm["시작_시각"].endswith("+09:00") and alarm["해제_시각"].endswith("+09:00")
+    assert datetime.fromisoformat(alarm["시작_시각"]) == raised
+
+
 def test_daily_reports_tool_lists_missing_dates(db):
     from datetime import date
 

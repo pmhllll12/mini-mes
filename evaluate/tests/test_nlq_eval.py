@@ -114,3 +114,26 @@ def test_no_dump_check_rejects_answer_describing_result_fields():
             "3. **scored_count**: 측정된 데이터 수 4. **anomaly_count**: 이상 데이터 수 EQ-003")
     assert not no_dump_ok(dump, calls)
     assert no_dump_ok("최근 24시간 이상이 가장 많은 설비는 EQ-001(335건)입니다. anomaly_count 기준입니다.", calls)
+
+
+def test_drift_history_must_report_equipment_with_alarms():
+    from datetime import datetime
+    from nlq_eval import KST, grade
+    now = datetime(2026, 9, 30, 16, 6, 34, tzinfo=KST)
+    item = {"question": "지난 1시간 열화 경보 이력 보여줘",
+            "expect": {"tools": ["get_drift_alarms"], "equipment_ids": [], "range": "last_1h",
+                       "truth": "drift_alarm_equipment"}}
+    rows = [{"equipment_id": eq, "경보_횟수": n, "경보_중": False, "경보_목록": []}
+            for eq, n in [("EQ-001", 4), ("EQ-002", 3), ("EQ-003", 0)]]
+    call = {"name": "get_drift_alarms", "ok": True, "result": {"results": rows},
+            "input": {"equipment_ids": [], "start": "2026-09-30T15:06:34+09:00", "end": "2026-09-30T16:06:34+09:00"}}
+
+    def body(answer):
+        return {"tool_calls": [call], "answer": answer, "stop": "answer"}
+    # 2026-09-30 Gemini의 실제 답변 (도구는 경보 11건을 돌려줬음)
+    wrong = "지난 1시간 (2026-09-30T15:06:34+09:00부터 2026-09-30T16:06:34+09:00) 동안 열화 경보 이력이 없습니다."
+    assert grade(item, body(wrong), now)["grounded"] is False
+    assert grade(item, body("EQ-001 4회, EQ-002 3회 열화 경보가 있었고 모두 해제됐습니다."), now)["grounded"] is True
+    no_alarm = [dict(r, 경보_횟수=0) for r in rows]
+    call_none = dict(call, result={"results": no_alarm})
+    assert grade(item, {"tool_calls": [call_none], "answer": wrong, "stop": "answer"}, now)["grounded"] is True

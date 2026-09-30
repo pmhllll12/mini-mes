@@ -6,7 +6,8 @@
 - 인자: 그 호출의 equipment_ids(빈 배열 = 전체)와 기간(start/end, 일일 리포트는 start_date/end_date)이 기대와 맞는가
     today = 오늘 00:00(KST)부터 현재(또는 내일 00:00)까지, yesterday = 어제 00:00~오늘 00:00,
     last_Nh = 현재-N시간~현재 (허용 오차 10분)
-- 근거(truth): 설비·기간이 맞게 호출된 도구 결과의 정답(최다 불량 유형, 이상 최다 설비)이 답변에 그대로 들어 있는가
+- 근거(truth): 설비·기간이 맞게 호출된 도구 결과의 정답(최다 불량 유형, 이상 최다 설비, 열화 경보가 있는 설비 전부)이
+    답변에 그대로 들어 있는가
     (데이터가 없으면 "없다"고 답해야 함). 도구 결과를 지어내거나 바꿔 말하지 않았는지 확인한다.
 - 답변 문구(answer_mentions_any): 등록되지 않은 설비, 조회 불가 항목, 범위 밖 질문을 추측 없이 안내하는가
 - 단위(units, 불량 집계 질문): 답변의 "숫자+건"/"숫자+개"가 도구 결과의 품질이벤트_건수/불량수량_개와 맞는가.
@@ -70,6 +71,8 @@ def truth_from_result(kind: str, result: dict):
     if kind == "top_anomaly_equipment":
         rows = [r for r in rows if r["anomaly_count"] > 0]
         return max(rows, key=lambda r: r["anomaly_count"])["equipment_id"] if rows else None
+    if kind == "drift_alarm_equipment":  # 경보가 있는 설비 목록 (모두 답변에 나와야 함)
+        return [r["equipment_id"] for r in rows if r["경보_횟수"] > 0] or None
     raise ValueError(kind)
 
 
@@ -152,7 +155,10 @@ def grade(item: dict, body: dict, now: datetime) -> dict:
                    and equipment_ok(c["input"], expect["equipment_ids"]) and range_ok(c["input"], expect["range"], now)]
         if correct:
             truth = truth_from_result(expect["truth"], correct[-1]["result"])
-            checks["grounded"] = (truth in answer) if truth else any(w in answer for w in NO_DATA_WORDS)
+            if isinstance(truth, list):
+                checks["grounded"] = all(t in answer for t in truth)
+            else:
+                checks["grounded"] = (truth in answer) if truth else any(w in answer for w in NO_DATA_WORDS)
             checks["_truth"] = truth
             if expect["truth"] == "top_defect_type":
                 checks["units"] = units_ok(answer, correct[-1]["result"].get("results", []))

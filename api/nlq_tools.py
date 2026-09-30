@@ -9,8 +9,10 @@ LLM은 SQL을 만들지 않고, 여기 정의된 함수만 이름·인자로 골
 - 기간은 시간대가 있는 ISO 8601, start < end, 최대 MAX_RANGE_DAYS일
 - 이상 판정·열화 경보 목록은 설비당 최근 MAX_ANOMALIES_PER_EQUIPMENT건까지만 돌려준다 (LLM 입력 크기 제한)
 - 수량·건수·시간 필드는 이름에 단위를 드러낸다 (LLM이 불량 수량(개)을 건수로 말하던 문제의 대책)
+- 결과의 시각은 모두 KST로 바꿔 돌려준다. DB 시각(UTC)을 그대로 주면 Gemini가 KST 조회 기간(15:06~16:06+09:00)과
+  UTC 경보 시각(06:28Z)을 비교해 경보가 11건 있는데 "없다"고 답했다 (2026-09-30 평가 drift_history)
 """
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List
 
 from fastapi.encoders import jsonable_encoder
@@ -24,6 +26,7 @@ from report import load_daily_reports
 
 MAX_RANGE_DAYS = 30
 MAX_ANOMALIES_PER_EQUIPMENT = 20
+KST = timezone(timedelta(hours=9))
 
 _RANGE_PROPERTIES = {
     "equipment_ids": {
@@ -281,4 +284,15 @@ def execute_tool(db: Session, name: str, args: Dict[str, Any]) -> dict:
         raise ToolError(f"알 수 없는 도구: {name}. 사용 가능: {sorted(TOOL_NAMES)}")
     if not isinstance(args, dict):
         raise ToolError("인자는 객체(JSON object)여야 합니다")
-    return jsonable_encoder(handler(db, args))
+    return jsonable_encoder(_to_kst(handler(db, args)))
+
+
+def _to_kst(value):
+    """결과 안의 시간대 있는 datetime을 KST로 (시간대 없는 값·날짜는 그대로)"""
+    if isinstance(value, datetime) and value.tzinfo is not None:
+        return value.astimezone(KST)
+    if isinstance(value, dict):
+        return {k: _to_kst(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_to_kst(v) for v in value]
+    return value

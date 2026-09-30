@@ -7,7 +7,7 @@
 FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana, GitHub Actions, Helm(k3d 로컬 검증), scikit-learn(Isolation Forest), Terraform(Oracle Cloud)
 
 ## 구조
-- api/ : FastAPI 앱 (main.py, models.py, schemas.py, oee.py, quality.py, anomaly.py, metrics.py, database.py, report.py 일일 리포트, nlq_tools.py 자연어 질의 읽기 전용 도구 6개(결과 필드명에 단위 표기), nlq_providers.py Claude·Gemini·OpenAI 호환(openai_compat, requests로 호출) 어댑터)
+- api/ : FastAPI 앱 (main.py, models.py, schemas.py, oee.py, quality.py, anomaly.py, metrics.py, database.py, report.py 일일 리포트, nlq_tools.py 자연어 질의 읽기 전용 도구 6개(결과 필드명에 단위 표기, 결과 시각은 KST), nlq_providers.py Claude·Gemini·OpenAI 호환(openai_compat, requests로 호출) 어댑터)
 - api/tests/ : pytest 테스트 (Postgres 필요, db/schema.sql 적용된 DB 대상). conftest.py의 autouse fixture가 테스트 프로세스가 넣은 행(after_insert 추적)과 워커가 그 로그를 판정한 결과를 지우고 설비 status를 복원 (KEEP_TEST_DATA=1이면 유지)
 - anomaly-worker/ : 이상탐지 워커 컨테이너 (features.py 특징 추출, model.py 설비별 Isolation Forest + robust z-score 결합(v2, v1 번들도 호환), features.py build_features(--rolling-window 이동 구간 특징, 기본 꺼짐), train.py 학습 CLI, worker.py 주기 추론 + :9100 메트릭 + 급변/열화 경보 분리, db.py). 모델은 anomaly_models 볼륨(/models)에 저장. tests/는 DB 없이 실행
 - evaluate/nlq_eval.py + nlq_questions.json : 자연어 질의 평가(도구 선택·인자·근거·단위·설비 언급(비교 질문은 누락도)·필드 나열·언어·안내 문구, --only로 일부만, --out에 도구 결과까지 저장 → evaluate/results/에 두면 gitignore, 채점 규칙을 바꾼 뒤 재채점용). 실제 LLM 호출이라 비용·무료 한도 소모 → 실행 전 사용자 확인
@@ -44,7 +44,7 @@ FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana, GitHub 
 
 ## 로드맵
 1주 코어 API/시뮬레이터 → 2주 OEE 고도화 → 3주 모니터링 → 4주 K3s/Helm (완료)
-→ 5주 이상탐지(Isolation Forest) (완료) → 6주 자연어 질의 (완료: Gemini 12/12, Claude 미평가. 건수·수량 혼동은 get_defect_summary 결과 필드명을 품질이벤트_건수/불량수량_개로 바꿔 개선, 2회 확인) → 7주 Terraform/CI-CD/문서화 (진행 중: Terraform 작성·네트워크 생성, A1 VM 재고 대기)
+→ 5주 이상탐지(Isolation Forest) (완료) → 6주 자연어 질의 (완료: Gemini 13/13(09-30 새 도구 질문 2개 포함), Claude 미평가. 건수·수량 혼동은 get_defect_summary 결과 필드명을 품질이벤트_건수/불량수량_개로 바꿔 개선, 2회 확인. 시간대 혼동은 도구 결과 시각을 KST로 변환해 개선, 1회 확인) → 7주 Terraform/CI-CD/문서화 (진행 중: Terraform 작성·네트워크 생성, A1 VM 재고 대기)
 
 ## 알려진 이슈
 - (해결됨, 2주차) production_log.qty_defect 와 quality_event 가 서로 연결되어 있지 않던 문제 → quality_event.production_log_id(nullable FK) 추가, `/quality/defect-summary` API로 설비별·불량유형별 집계 제공

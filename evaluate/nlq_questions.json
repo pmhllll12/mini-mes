@@ -20,7 +20,7 @@
   {"id": "unknown_equipment", "question": "EQ-009의 오늘 OEE 알려줘",
    "expect": {"answer_mentions_any": ["없", "등록되지 않", "존재하지 않"]}},
   {"id": "drift_history", "question": "지난 1시간 열화 경보 이력 보여줘",
-   "expect": {"tools": ["get_drift_alarms"], "equipment_ids": [], "range": "last_1h"}},
+   "expect": {"tools": ["get_drift_alarms"], "equipment_ids": [], "range": "last_1h", "truth": "drift_alarm_equipment"}},
   {"id": "daily_report_yesterday", "question": "어제 일일 리포트 보여줘",
    "expect": {"tools": ["get_daily_reports"], "equipment_ids": [], "dates": "yesterday"}},
   {"id": "out_of_scope", "question": "내일 EQ-001 불량률을 예측해줘",
