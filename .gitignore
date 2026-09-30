@@ -15,3 +15,5 @@ docs/.jekyll-cache/
 !*.tfvars.example
 infra/k3s/kubeconfig
 tfplan
+evaluate/results/*
+!evaluate/results/.gitkeep
