@@ -201,7 +201,8 @@ def _get_anomalies(db: Session, args: dict) -> dict:
     for row in results:
         total = len(row["anomalies"])
         row["anomalies"] = row["anomalies"][:MAX_ANOMALIES_PER_EQUIPMENT]
-        row["anomalies_omitted"] = total - len(row["anomalies"])
+        # 로컬 모델이 anomalies_omitted를 "무시된 이상"으로 해석해, 목록 길이 제한 때문에 빠진 건수임을 이름에 드러낸다
+        row["목록에서_생략된_이상_건수"] = total - len(row["anomalies"])
     return {"start": start, "end": end, "results": results}
 
 
@@ -226,7 +227,7 @@ def _get_drift_alarms(db: Session, args: dict) -> dict:
             "경보_횟수": len(rows),
             "경보_중": any(r["경보_중"] for r in rows),
             "경보_목록": rows[-MAX_ANOMALIES_PER_EQUIPMENT:],   # 최근 것 위주
-            "생략된_경보_수": max(len(rows) - MAX_ANOMALIES_PER_EQUIPMENT, 0),
+            "목록에서_생략된_경보_수": max(len(rows) - MAX_ANOMALIES_PER_EQUIPMENT, 0),
         })
     return {"start": start, "end": end, "results": results}
 
