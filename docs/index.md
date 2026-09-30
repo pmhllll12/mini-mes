@@ -45,6 +45,12 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
                                                              [Grafana]
 ```
 
+## 화면
+
+![Grafana 대시보드]({{ '/assets/images/grafana-dashboard.png' | relative_url }})
+
+*Grafana "mini-mes 개요" 대시보드 (2026-09-30, 시뮬레이터 가상 데이터: 급변 이상 5%·점진적 열화가 섞인 5분 실행분). 위에서부터 OEE·가동률·양품률, 불량 집계, API 요청·지연시간, 이상 점수(점선 = 설비별 threshold)·열화 점수와 경보 상태, 자연어 질의 요청·도구 호출.*
+
 ## 주요 기능
 
 | 영역 | 내용 |

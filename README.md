@@ -8,6 +8,10 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 
 프로젝트 소개 페이지(GitHub Pages, Jekyll): https://pmhllll12.github.io/mini-mes/ — 소스는 `docs/` (로컬 미리보기: `cd docs && jekyll serve --port 4002` → http://localhost:4002/mini-mes/)
 
+![Grafana 대시보드](docs/assets/images/grafana-dashboard.png)
+
+*Grafana "mini-mes 개요" 대시보드 (2026-09-30, 시뮬레이터 가상 데이터: 급변 이상 5%·점진적 열화가 섞인 5분 실행분). 위에서부터 OEE·가동률·양품률, 불량 집계, API 요청·지연시간, 이상 점수(점선 = 설비별 threshold)·열화 점수와 경보 상태, 자연어 질의 요청·도구 호출.*
+
 ## 배경
 
 제조 현장에서 수율 데이터 관리와 가공 품질 관리를 담당하며, MES에서 데이터를 뽑는 일이 가장 불편했습니다.
@@ -191,6 +195,10 @@ docker compose logs -f anomaly-worker
 `POST /query`에 질문을 보내면 LLM이 **읽기 전용 도구**를 골라 호출하고, 그 결과로 답합니다. LLM은 SQL을 만들지 않습니다.
 설계·평가·발견한 문제는 **[자연어 질의 상세 문서](docs/nlq.md)**([GitHub Pages](https://pmhllll12.github.io/mini-mes/nlq/))에 정리했습니다.
 
+![자연어 질의 응답 예시](docs/assets/images/nlq-query.png)
+
+*`POST /query` 응답 예시 (2026-09-30 평가에서 저장한 실제 응답을 질문 → 도구 호출(근거) → 답변 순으로 표시, 도구 결과는 설비 1개만 발췌). LLM은 SQL 없이 `get_daily_reports`만 골라 호출하고, 답변 수치는 도구 결과와 같습니다.*
+
 ```bash
 curl -X POST http://localhost:8001/query -H 'Content-Type: application/json' \
      -d '{"question": "최근 1시간 EQ-002에서 가장 많이 나온 불량 유형은?"}'
@@ -255,6 +263,10 @@ curl -X POST http://localhost:8001/query -H 'Content-Type: application/json' \
 ### 알림 (Grafana Alerting → Discord)
 
 `monitoring/grafana/provisioning/alerting/alerting.yml`로 알림 규칙과 수신처가 자동 등록됩니다 (Grafana "Alerting > Alert rules"의 `mini-mes` 폴더).
+
+![Grafana 알림 규칙](docs/assets/images/grafana-alerts.png)
+
+*Grafana 알림 규칙 4개 (프로비저닝). 급변 이상이 섞인 실행분 직후라 EQ-003의 "급변 이상 다발"이 발생 중입니다. 발생·해제 시 Discord로 전송됩니다.*
 
 | 규칙 | 조건 | 심각도 |
 |---|---|---|
