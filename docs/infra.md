@@ -7,7 +7,7 @@ permalink: /infra/
 같은 애플리케이션을 **Docker Compose → k3d(로컬 K3s) → Oracle Cloud K3s 서버** 순서로 옮기며 인프라를 단계적으로 쌓고 있습니다.
 이 페이지는 배포 구성, 보안 설계, CI/CD, 검증 기록을 정리합니다.
 
-> **현재 상태 (2026-09-29):** Terraform으로 Oracle Cloud 오사카 리전에 네트워크를 만들었고, 서버 VM은 무료 ARM 재고 부족("Out of host capacity")으로 생성을 기다리는 중입니다. 서버 배포 경로는 같은 K3s 버전의 k3d 클러스터에서 먼저 검증했습니다.
+> **현재 상태 (2026-10-01):** Terraform으로 Oracle Cloud 오사카 리전에 네트워크를 만들었고, 서버 VM은 무료 ARM 재고 부족("Out of host capacity")으로 생성을 기다리는 중입니다. 서버 배포 경로는 같은 K3s 버전의 k3d 클러스터에서 먼저 검증했습니다.
 
 ## 실행 환경
 
@@ -109,6 +109,7 @@ PC ─ ssh :22 (my IP/32 only) ─→ OCI ap-osaka-1               │
 | 2026-09-29 | k3d (k3s v1.36.4), 차트 0.7.0 | Grafana 알림 프로비저닝 | 웹훅 Secret 없이 파드 5개 Running·규칙 4개 등록, Secret 생성 후 URL 교체 |
 | 2026-09-29 | Oracle Cloud ap-osaka-1 | 예산·알림 규칙 (`plan -target`으로 예산 3개만, 재시도 스크립트 멈춘 뒤 적용) | 3개 생성 |
 | 2026-09-29 | Oracle Cloud ap-osaka-1 | `terraform apply` (plan 6개) | 네트워크 5개 생성, VM은 `Out of host capacity` → 재시도 중 |
+| 2026-10-01 | Oracle Cloud ap-osaka-1 | `retry-apply.sh` (1 OCPU / 6GB, 2분 간격), plan은 VM 1개 추가만 남음 | 계속 `Out of host capacity` → 재시도 중 |
 
 **아직 확인하지 못한 것**
 

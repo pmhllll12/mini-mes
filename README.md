@@ -4,7 +4,7 @@
 Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단계적으로 고도화하며 만들고 있습니다.
 
 > **현재 상태:** 7주차 진행 중 (핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링·Discord 알림, GitHub Actions CI, Helm 차트 + k3d 로컬 검증, 이상탐지 워커 + 가상 데이터 기준 성능 평가, 자연어 질의 API — Gemini 13/13 통과, Claude 미평가, 예약 리포트).
-> 7주차: K3s 서버는 Oracle Cloud 상시 무료 ARM VM(오사카)으로 정하고 Terraform 코드를 작성했습니다. 네트워크는 생성됐지만 VM은 무료 ARM 재고 부족("Out of host capacity")으로 아직 생성 대기 중입니다.
+> **배포 상태:** Helm 차트는 k3d에서 검증을 마쳤고, 서버와 같은 K3s 버전·같은 values·GHCR 이미지로 서버 배포 경로까지 로컬에서 확인했습니다. K3s 서버는 Oracle Cloud 상시 무료 ARM VM(오사카)으로 정해 Terraform으로 네트워크까지 만들었지만, VM은 무료 ARM 재고 부족("Out of host capacity")으로 생성을 재시도하는 중입니다 (2026-10-01 기준). 서버 배포 결과는 VM이 생기면 추가합니다.
 
 프로젝트 소개 페이지(GitHub Pages, Jekyll): https://pmhllll12.github.io/mini-mes/ — 소스는 `docs/` (로컬 미리보기: `cd docs && jekyll serve --port 4002` → http://localhost:4002/mini-mes/)
 
@@ -314,7 +314,7 @@ ruff check anomaly-worker evaluate
 
 ## K3s/Helm (로컬 검증)
 
-`charts/mini-mes/`에 api·db·이상탐지 워커를 옮기는 Helm 차트가 있습니다. 어느 서버에 배포할지는 아직 정하지 않아, 이 단계에서는 k3d(또는 minikube)로 로컬 검증만 합니다.
+`charts/mini-mes/`에 api·db·이상탐지 워커·Prometheus·Grafana를 옮기는 Helm 차트가 있습니다. 이 절은 k3d(또는 minikube) 로컬 검증 절차이고, 서버 배포는 아래 [Oracle Cloud K3s 배포](#oracle-cloud-k3s-배포-terraform-진행-중)를 참고하세요.
 
 - DB 접속 정보(`POSTGRES_USER`/`PASSWORD`/`DB`, `DATABASE_URL`)는 Secret(`templates/secret.yaml`)로 관리
 - DB 저장소는 PersistentVolumeClaim(`templates/db-pvc.yaml`, 기본 1Gi) — Pod를 지워도 데이터가 유지되는 것까지 확인함
@@ -413,7 +413,7 @@ SERVER_IP=$(terraform output -raw public_ip) GRAFANA_ADMIN_PASSWORD=... ../../k3
 - Grafana: 기본 비밀번호 `admin/admin`은 401, 넘긴 비밀번호로만 관리자 API 200
 - 로컬 PC는 amd64라 arm64 이미지의 실행은 확인하지 못함 (CI에서 arm64 빌드·의존성 설치까지만 확인)
 
-**현재 상태 (2026-09-29):** `plan` 6개 중 네트워크 5개 생성, VM은 오사카 A1 재고 부족(`500-InternalError, Out of host capacity`)으로 실패해 재시도 대기 중. 서버 배포 결과는 VM 생성 후 기록합니다.
+**현재 상태 (2026-10-01):** 네트워크 5개와 예산 알림은 생성됐고, 남은 리소스는 VM 1개입니다. VM은 오사카 A1 재고 부족(`500-InternalError, Out of host capacity`)으로 계속 실패해 `retry-apply.sh`(1 OCPU / 6GB)로 재시도 중입니다. 유료 클라우드는 이 구성(최소 메모리 4GB)을 상시 운영하면 월 과금이 생겨, 상시 무료 A1을 기다리기로 했습니다. 서버 배포 결과는 VM 생성 후 기록합니다.
 
 ## 기술 스택
 
@@ -442,8 +442,8 @@ SERVER_IP=$(terraform output -raw public_ip) GRAFANA_ADMIN_PASSWORD=... ../../k3
   - 설비별 모델이라 새 설비를 추가하거나 공정 조건이 바뀌면 재학습이 필요하고(자동 재학습 없음), 학습 데이터가 정상인지는 사람이 학습 구간을 지정해서 보장합니다.
   - 열화 경보는 열화가 끝난 뒤에도 몇 구간 더 켜져 있습니다. 경보 시작/해제 이력은 `drift_alarm`에 남지만 판정 건별 열화 점수는 메트릭으로만 남습니다.
   - `anomaly_result`에 생산실적 ID가 없어 `(equipment_id, ts)`로 같은 로그인지 판단합니다.
-- 자연어 질의: 평가는 질문 12개(Gemini, 세 번에 나눠 실행)뿐이고 Claude는 미평가입니다. 불량 수량(개)을 건수로 말하던 오류는 도구 필드 이름 수정 후 2회 확인 수준입니다 (단위 검사는 불량 집계 질문에만 적용). Helm 차트에서는 키를 담은 Secret(`<release>-llm`)을 직접 만들어야 `/query`가 동작합니다.
-- Helm 차트(워커·Prometheus·Grafana 포함)는 k3d 로컬 검증까지만 했습니다 (k3d 기본 local-path 저장소라 PVC도 노드 한 대의 디스크에 있음).
+- 자연어 질의: 평가는 질문 13개(Gemini, 여러 날에 나눠 실행)뿐이고 Claude는 미평가입니다. 불량 수량(개)을 건수로 말하던 오류는 도구 필드 이름 수정 후 2회 확인 수준입니다 (단위 검사는 불량 집계 질문에만 적용). Helm 차트에서는 키를 담은 Secret(`<release>-llm`)을 직접 만들어야 `/query`가 동작합니다.
+- Helm 차트(워커·Prometheus·Grafana 포함)는 k3d 로컬 검증까지만 했습니다 (k3d 기본 local-path 저장소라 PVC도 노드 한 대의 디스크에 있음). 실제 서버(Oracle Cloud) 배포는 VM 생성 대기 중이며, arm64 이미지가 실제 ARM 노드에서 실행되는지도 아직 확인하지 못했습니다.
 
 ## 개발 기간
 

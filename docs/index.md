@@ -14,7 +14,7 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 - 배포 구성·보안 설계·CI/CD·검증 기록: [인프라]({{ '/infra/' | relative_url }})
 
 > **현재 상태:** 7주차 진행 중 — 핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링·Discord 알림, GitHub Actions CI, Helm 차트 + k3d 로컬 검증, 이상탐지 워커 + 가상 데이터 기준 성능 평가, 자연어 질의 API(Gemini 13/13 통과, Claude 미평가), 예약 리포트.
-> 7주차: K3s 서버는 Oracle Cloud 상시 무료 ARM VM(오사카)으로 정하고 Terraform 코드를 작성했습니다. 네트워크는 생성됐지만 VM은 무료 ARM 재고 부족("Out of host capacity")으로 아직 생성 대기 중입니다.
+> **배포 상태:** Helm 차트는 k3d에서 검증을 마쳤고, 서버와 같은 K3s 버전·같은 values·GHCR 이미지로 서버 배포 경로까지 로컬에서 확인했습니다. Oracle Cloud 상시 무료 ARM VM(오사카)은 Terraform으로 네트워크까지 만들었고, VM은 무료 ARM 재고 부족으로 생성을 재시도하는 중입니다 (2026-10-01 기준).
 
 ## 배경
 
