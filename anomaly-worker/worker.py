@@ -19,10 +19,14 @@ anomaly_result에 (equipment_id, ts, anomaly_score, is_anomaly)를 기록한다.
   열화 경보가 도중에 꺼지지 않게 하기 위함.
   경보는 열화 판정 DRIFT_RAISE_AFTER구간 연속이면 시작, 정상 판정 DRIFT_CLEAR_AFTER구간 연속이면 해제한다
   (threshold 근처에서 켜졌다 꺼지기를 반복하는 깜빡임 완화).
+  추가로 (값을 비우면 끔, evaluate/drift_alarm_eval.py로 검증·평가 실행분을 나눠 정함):
+  - 시작: 현재 구간 사이클타임 z의 단측 CUSUM(DRIFT_CUSUM_K, DRIFT_CUSUM_H) - 열화 초반의 작은 상승 누적
+  - 해제: 경보 중에는 현재 구간 사이클타임 z < DRIFT_CLEAR_Z를 정상으로 봄 - 이동 구간 특징의 해제 지연 제거
 """
 import logging
 import os
 import time
+from typing import Optional
 
 import numpy as np
 from prometheus_client import Counter, Gauge, start_http_server
@@ -46,7 +50,17 @@ LOOKBACK_HOURS = int(os.getenv("LOOKBACK_HOURS", "24"))
 METRICS_PORT = int(os.getenv("METRICS_PORT", "9100"))
 DRIFT_MODEL_DIR = os.getenv("DRIFT_MODEL_DIR", os.path.join(MODEL_DIR, "drift"))
 DRIFT_RAISE_AFTER = int(os.getenv("DRIFT_RAISE_AFTER", "2"))
-DRIFT_CLEAR_AFTER = int(os.getenv("DRIFT_CLEAR_AFTER", "3"))
+DRIFT_CLEAR_AFTER = int(os.getenv("DRIFT_CLEAR_AFTER", "2"))
+
+
+def _optional_float(name: str, default: str) -> Optional[float]:
+    value = os.getenv(name, default).strip()
+    return float(value) if value else None
+
+
+DRIFT_CLEAR_Z = _optional_float("DRIFT_CLEAR_Z", "1.5")
+DRIFT_CUSUM_K = _optional_float("DRIFT_CUSUM_K", "1.0")
+DRIFT_CUSUM_H = _optional_float("DRIFT_CUSUM_H", "4.0")
 
 ANOMALY_SCORE = Gauge(
     "mes_anomaly_score", "직전 판정 주기에 판정한 생산실적 중 최대 이상 점수", ["equipment_id"]
@@ -105,37 +119,71 @@ class DriftAlarm:
     열화 판정이 raise_after구간 연속이면 경보 시작, 정상 판정이 clear_after구간 연속이면 해제.
     None은 건너뛴다 (연속 횟수를 늘리지도 끊지도 않음).
     연속 횟수는 판정 주기를 넘어 이어진다. raise_after=clear_after=1이면 판정을 그대로 따른다.
+
+    선택 옵션 (cycle_z = 현재 구간 사이클타임의 robust z, 학습 정상 데이터 기준):
+    - cusum_k·cusum_h: 단측 CUSUM S = max(0, S + min(z, CUSUM_Z_CAP) - k)가 h를 넘으면 경보 시작.
+      정상 변동 안의 작은 상승이 계속 쌓이는 열화 초반을 잡기 위함. 경보 시작·해제 때 0으로 되돌린다.
+    - clear_z: 경보 중에는 모델 판정 대신 "현재 구간 z < clear_z"를 정상으로 보고 해제한다.
+      이동 구간 특징은 열화가 끝난 뒤에도 window-1구간 동안 높게 남아 해제가 늦어지기 때문.
     """
 
-    def __init__(self, raise_after: int = 1, clear_after: int = 1):
+    CUSUM_Z_CAP = 4.0  # 한 구간이 CUSUM에 더할 수 있는 최대 z (튀는 1건이 바로 경보를 만들지 않게)
+
+    def __init__(self, raise_after: int = 1, clear_after: int = 1,
+                 cusum_k: Optional[float] = None, cusum_h: Optional[float] = None, clear_z: Optional[float] = None):
         self.raise_after = raise_after
         self.clear_after = clear_after
+        self.cusum_k = cusum_k
+        self.cusum_h = cusum_h
+        self.clear_z = clear_z
         self.active: dict[str, bool] = {}
         self._streak: dict[str, int] = {}  # 현재 상태와 반대인 판정이 연속된 횟수
+        self._cusum: dict[str, float] = {}
+
+    @property
+    def uses_cycle_z(self) -> bool:
+        return self.clear_z is not None or (self.cusum_k is not None and self.cusum_h is not None)
 
     def restore(self, active_equipment_ids) -> None:
         """재시작 시 DB(drift_alarm)의 진행 중 경보로 상태를 되살린다"""
         for equipment_id in active_equipment_ids:
             self.active[equipment_id] = True
 
-    def update(self, equipment_id: str, flags) -> list[tuple[int, str]]:
+    def update(self, equipment_id: str, flags, cycle_z=None) -> list[tuple[int, str]]:
         events = []
         state = self.active.get(equipment_id, False)
         streak = self._streak.get(equipment_id, 0)
+        cusum = self._cusum.get(equipment_id, 0.0)
+        use_cusum = self.cusum_k is not None and self.cusum_h is not None and cycle_z is not None
         for i, flag in enumerate(flags):
             if flag is None:
                 continue
-            if bool(flag) == state:
-                streak = 0
-                continue
-            streak += 1
-            if streak >= (self.clear_after if state else self.raise_after):
+            z = None if cycle_z is None else float(cycle_z[i])
+            if state and self.clear_z is not None and z is not None:
+                normal = z < self.clear_z
+                streak = streak + 1 if normal else 0
+            else:
+                if not state and use_cusum:
+                    cusum = max(0.0, cusum + min(z, self.CUSUM_Z_CAP) - self.cusum_k)
+                if bool(flag) == state:
+                    streak = 0
+                else:
+                    streak += 1
+            limit = self.clear_after if state else self.raise_after
+            if streak >= limit or (not state and use_cusum and cusum > self.cusum_h):
                 state = not state
                 streak = 0
+                cusum = 0.0
                 events.append((i, "raised" if state else "cleared"))
         self.active[equipment_id] = state
         self._streak[equipment_id] = streak
+        self._cusum[equipment_id] = cusum
         return events
+
+
+def cycle_z(bundle: dict, X: np.ndarray) -> np.ndarray:
+    """현재 구간 사이클타임(특징 0번)의 부호 있는 robust z - 학습 정상 데이터의 중앙값·척도 기준"""
+    return (X[:, 0] - bundle["z_center"][0]) / bundle["z_scale"][0]
 
 
 def run_drift(conn, equipment_id: str, rows, drift_models: ModelCache, alarm: DriftAlarm, spike_flags=None) -> None:
@@ -146,13 +194,15 @@ def run_drift(conn, equipment_id: str, rows, drift_models: ModelCache, alarm: Dr
     DRIFT_MODEL_LOADED.labels(equipment_id).set(1)
     DRIFT_THRESHOLD.labels(equipment_id).set(bundle["threshold"])
 
-    scores, flags = score(bundle, features_for(conn, equipment_id, rows, bundle))
+    X = features_for(conn, equipment_id, rows, bundle)
+    scores, flags = score(bundle, X)
     spike = np.zeros(len(rows), dtype=bool) if spike_flags is None else np.asarray(spike_flags, dtype=bool)
     DRIFT_SCORE.labels(equipment_id).set(float(scores[-1]))
     DRIFT_DETECTED.labels(equipment_id).inc(int((flags & ~spike).sum()))
     # 급변으로 판정된 구간은 판단 보류(None)
     judgements = [None if s else bool(f) for f, s in zip(flags, spike)]
-    for i, kind in alarm.update(equipment_id, judgements):
+    zs = cycle_z(bundle, X) if alarm.uses_cycle_z else None
+    for i, kind in alarm.update(equipment_id, judgements, zs):
         ts = rows[i][0]
         if kind == "raised":
             open_drift_alarm(conn, equipment_id, ts, float(scores[i]), bundle["threshold"])
@@ -202,8 +252,9 @@ def main():
     start_http_server(METRICS_PORT)
     models = ModelCache(MODEL_DIR)
     drift_models = ModelCache(DRIFT_MODEL_DIR, label="열화 ")
-    alarm = DriftAlarm(DRIFT_RAISE_AFTER, DRIFT_CLEAR_AFTER)
-    log.info("열화 경보: %d구간 연속 열화 판정 시 시작, %d구간 연속 정상 시 해제", DRIFT_RAISE_AFTER, DRIFT_CLEAR_AFTER)
+    alarm = DriftAlarm(DRIFT_RAISE_AFTER, DRIFT_CLEAR_AFTER, DRIFT_CUSUM_K, DRIFT_CUSUM_H, DRIFT_CLEAR_Z)
+    log.info("열화 경보: %d구간 연속 열화 판정 또는 CUSUM(k=%s, h=%s) 초과 시 시작, %d구간 연속 정상(사이클타임 z < %s) 시 해제",
+             DRIFT_RAISE_AFTER, DRIFT_CUSUM_K, DRIFT_CUSUM_H, DRIFT_CLEAR_AFTER, DRIFT_CLEAR_Z)
     if not os.path.isdir(DRIFT_MODEL_DIR):
         log.info("열화 모델 없음 (%s) - 급변 판정만 수행. 열화 감시는 train.py --rolling-window 5 --model-dir %s로 학습",
                  DRIFT_MODEL_DIR, DRIFT_MODEL_DIR)

@@ -146,3 +146,49 @@ def test_restored_alarm_is_not_raised_again(tmp_path, monkeypatch, alarm_writes)
     run_drift(None, "EQ-RST", rows, ModelCache(str(tmp_path)), alarm)
     assert alarm.active["EQ-RST"] is True
     assert alarm_writes == []  # 이미 경보 중이므로 새 경보 행을 만들지 않음
+
+
+# ---------- CUSUM 시작 · 사이클타임 z 해제 (선택 옵션) ----------
+
+def test_options_off_keep_model_only_behavior():
+    """옵션을 주지 않으면 cycle_z를 넘겨도 모델 판정만 따른다"""
+    alarm = DriftAlarm(2, 2)
+    assert not alarm.uses_cycle_z
+    assert alarm.update("EQ-001", [False] * 5, cycle_z=[9.0] * 5) == []
+
+
+def test_cusum_raises_on_small_persistent_shift():
+    """모델이 정상으로 보는 작은 상승(z=2)이 계속되면 CUSUM이 쌓여 경보 시작: (2-1)*5 = 5 > 4"""
+    alarm = DriftAlarm(2, 2, cusum_k=1.0, cusum_h=4.0)
+    assert alarm.update("EQ-001", [False] * 6, cycle_z=[2.0] * 6) == [(4, "raised")]
+
+
+def test_cusum_ignores_normal_noise_and_held_intervals():
+    alarm = DriftAlarm(2, 2, cusum_k=1.0, cusum_h=4.0)
+    # k 이하의 변동은 쌓이지 않음
+    assert alarm.update("EQ-001", [False] * 50, cycle_z=[0.9, -0.5] * 25) == []
+    # 판단 보류(None, 급변)는 z가 커도 더하지 않음
+    assert alarm.update("EQ-002", [None] * 5, cycle_z=[30.0] * 5) == []
+    # 튀는 1건은 CUSUM_Z_CAP(4)까지만 더함 - 한 건만으로는 경보가 되지 않음
+    assert alarm.update("EQ-003", [False], cycle_z=[30.0]) == []
+
+
+def test_clear_uses_cycle_z_instead_of_rolling_model():
+    """이동 구간 모델은 열화가 끝난 뒤에도 열화로 판정하지만, 현재 구간 z가 돌아오면 2구간 만에 해제"""
+    alarm = DriftAlarm(2, 2, clear_z=1.5)
+    assert alarm.update("EQ-001", [True, True], cycle_z=[3.0, 3.0]) == [(1, "raised")]
+    assert alarm.update("EQ-001", [True, True, True], cycle_z=[0.2, 2.0, 0.1]) == []  # 연속이 끊김
+    assert alarm.update("EQ-001", [True], cycle_z=[0.3]) == [(0, "cleared")]
+
+
+def test_cusum_resets_after_clear():
+    alarm = DriftAlarm(2, 2, cusum_k=1.0, cusum_h=4.0, clear_z=1.5)
+    events = alarm.update("EQ-001", [False] * 5 + [False, False], cycle_z=[2.0] * 5 + [0.0, 0.0])
+    assert events == [(4, "raised"), (6, "cleared")]
+    # 해제 후 다시 0부터 쌓는다 - z=2 한 번으로는 다시 켜지지 않음
+    assert alarm.update("EQ-001", [False], cycle_z=[2.0]) == []
+
+
+def test_cycle_z_uses_training_center_and_scale():
+    bundle = {"z_center": np.array([10.0, 5.0]), "z_scale": np.array([0.5, 1.0])}
+    assert worker.cycle_z(bundle, np.array([[11.0, 0.0], [9.5, 0.0]])).tolist() == [2.0, -1.0]
