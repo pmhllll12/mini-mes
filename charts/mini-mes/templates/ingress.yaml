@@ -53,6 +53,10 @@ spec:
     average: {{ $rl.average }}
     period: {{ $rl.period }}
     burst: {{ $rl.burst }}
+    {{- with $rl.sourceHeader }}
+    sourceCriterion:
+      requestHeaderName: {{ . }}
+    {{- end }}
 ---
 # HTTP는 HTTPS로 넘긴다. cert-manager의 HTTP-01 확인 경로는 규칙이 더 길어 우선 적용됨
 apiVersion: traefik.io/v1alpha1

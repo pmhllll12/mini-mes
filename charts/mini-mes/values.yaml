@@ -37,6 +37,9 @@ ingress:
     average: 3          # period당 평균 요청 수
     period: 1m
     burst: 3
+    # 방문자 구분 기준. 비우면 연결의 출발지 IP. 터널·프록시 뒤라 출발지가 모두 같으면
+    # 그 프록시가 넣는 실제 방문자 IP 헤더를 지정 (Cloudflare Tunnel: Cf-Connecting-Ip)
+    sourceHeader: ""
 
 db:
   image: postgres:16

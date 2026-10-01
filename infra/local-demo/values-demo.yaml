@@ -1,0 +1,10 @@
+# 임시 데모: 개인 PC의 k3d + Cloudflare Tunnel (Oracle VM이 생기기 전까지)
+# infra/k3s/values-oci.yaml(서버와 같은 GHCR 이미지·외부 공개·체험 한도·시뮬레이터) 위에 덮어쓴다
+ingress:
+  # 공개 TLS는 Cloudflare 엣지가 맡고, 터널 → Traefik 구간은 자체 서명 인증서(cloudflared noTLSVerify)
+  # Let's Encrypt HTTP-01은 터널 뒤에서 쓸 수 없어 selfsigned
+  clusterIssuer: selfsigned
+  queryRateLimit:
+    # 터널을 거치면 출발지가 모두 cloudflared라, Cloudflare가 넣는 실제 방문자 IP로 제한
+    # (origin은 터널로만 접근 가능하고 Cloudflare가 이 헤더를 덮어쓰므로 방문자가 위조할 수 없음)
+    sourceHeader: Cf-Connecting-Ip
