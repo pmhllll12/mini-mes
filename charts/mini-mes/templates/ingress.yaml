@@ -1,0 +1,121 @@
+{{- if .Values.ingress.enabled }}
+{{- $fullname := include "mini-mes.fullname" . }}
+{{- $host := required "ingress.host 필요" .Values.ingress.host }}
+{{- $hostRule := printf "Host(`%s`)" $host }}
+{{- $rl := .Values.ingress.queryRateLimit }}
+# TLS 인증서 - cert-manager가 ClusterIssuer(HTTP-01)로 발급·갱신해 <release>-tls Secret에 저장
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $fullname }}-tls
+  labels:
+    {{- include "mini-mes.labels" . | nindent 4 }}
+spec:
+  secretName: {{ $fullname }}-tls
+  dnsNames:
+    - {{ $host }}
+  issuerRef:
+    kind: ClusterIssuer
+    name: {{ .Values.ingress.clusterIssuer }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ $fullname }}-https-redirect
+  labels:
+    {{- include "mini-mes.labels" . | nindent 4 }}
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+---
+# 데이터 쓰기 등 잠금 경로 - Secret의 users 키(htpasswd 형식)
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ $fullname }}-basic-auth
+  labels:
+    {{- include "mini-mes.labels" . | nindent 4 }}
+spec:
+  basicAuth:
+    secret: {{ .Values.ingress.basicAuthSecret | default (printf "%s-basic-auth" $fullname) }}
+    realm: mini-mes
+---
+# POST /query - 클라이언트 IP당 요청 수 제한 (하루 전체 상한은 api의 NLQ_DAILY_LIMIT)
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ $fullname }}-query-ratelimit
+  labels:
+    {{- include "mini-mes.labels" . | nindent 4 }}
+spec:
+  rateLimit:
+    average: {{ $rl.average }}
+    period: {{ $rl.period }}
+    burst: {{ $rl.burst }}
+---
+# HTTP는 HTTPS로 넘긴다. cert-manager의 HTTP-01 확인 경로는 규칙이 더 길어 우선 적용됨
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ $fullname }}-http
+  labels:
+    {{- include "mini-mes.labels" . | nindent 4 }}
+spec:
+  entryPoints: [web]
+  routes:
+    - match: {{ $hostRule | quote }}
+      kind: Rule
+      middlewares:
+        - name: {{ $fullname }}-https-redirect
+      services:
+        - name: {{ $fullname }}-api
+          port: {{ .Values.api.service.port }}
+---
+# 우선순위가 높은 규칙부터 적용 (priority)
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "mini-mes.labels" . | nindent 4 }}
+spec:
+  entryPoints: [websecure]
+  tls:
+    secretName: {{ $fullname }}-tls
+  routes:
+    {{- if .Values.monitoring.enabled }}
+    # 대시보드 - 익명 Viewer (관리자 로그인은 Grafana 자체 비밀번호)
+    - match: {{ printf "%s && PathPrefix(`/grafana`)" $hostRule | quote }}
+      kind: Rule
+      priority: 100
+      services:
+        - name: {{ $fullname }}-grafana
+          port: {{ .Values.monitoring.grafana.port }}
+    {{- end }}
+    # 자연어 질의 - 공개하되 IP당 rateLimit
+    - match: {{ printf "%s && Method(`POST`) && Path(`/query`)" $hostRule | quote }}
+      kind: Rule
+      priority: 90
+      middlewares:
+        - name: {{ $fullname }}-query-ratelimit
+      services:
+        - name: {{ $fullname }}-api
+          port: {{ .Values.api.service.port }}
+    # 조회(채팅 화면, /docs, OEE·이상탐지 등) - 공개. /metrics는 아래 잠금 규칙으로
+    - match: {{ printf "%s && (Method(`GET`) || Method(`HEAD`)) && !PathPrefix(`/metrics`)" $hostRule | quote }}
+      kind: Rule
+      priority: 80
+      services:
+        - name: {{ $fullname }}-api
+          port: {{ .Values.api.service.port }}
+    # 나머지(생산실적·품질 이벤트 등록, 리포트 재생성, /metrics) - basic-auth
+    - match: {{ $hostRule | quote }}
+      kind: Rule
+      priority: 1
+      middlewares:
+        - name: {{ $fullname }}-basic-auth
+      services:
+        - name: {{ $fullname }}-api
+          port: {{ .Values.api.service.port }}
+{{- end }}

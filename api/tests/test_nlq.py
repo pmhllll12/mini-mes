@@ -12,6 +12,7 @@ import pytest
 import main
 from database import SessionLocal
 from nlq_providers import KST, ClaudeProvider, GeminiProvider, NLQResult, user_message
+from nlq_quota import DailyQuota
 from nlq_tools import ToolError, execute_tool
 
 NOW = datetime(2026, 9, 28, 15, 0, tzinfo=KST)
@@ -141,7 +142,8 @@ def test_user_message_carries_current_time_in_kst():
 
 @pytest.fixture()
 def no_keys(monkeypatch):
-    for key in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "NLQ_PROVIDER", "OPENAI_COMPAT_BASE_URL", "OPENAI_COMPAT_MODEL"):
+    for key in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "NLQ_PROVIDER", "OPENAI_COMPAT_BASE_URL", "OPENAI_COMPAT_MODEL",
+                "NLQ_ALLOWED_PROVIDERS"):
         monkeypatch.delenv(key, raising=False)
 
 
@@ -195,6 +197,60 @@ def test_query_returns_answer_with_tool_calls(client, monkeypatch):
 def test_query_validates_question(client):
     assert client.post("/query", json={"question": ""}).status_code == 422
     assert client.post("/query", json={"question": "x", "provider": "gpt"}).status_code == 422
+
+
+# ---------- 공개 서버용 남용 방지 (하루 상한, 허용 제공자) ----------
+
+class EchoProvider:
+    name = "fake"
+
+    def run(self, user_text, run_tool, max_rounds):
+        return NLQResult("fake", "fake-model", "ok", "answer", [])
+
+
+def test_daily_quota_counts_per_kst_day():
+    quota = DailyQuota(2)
+    t = datetime(2026, 9, 28, 14, 59, tzinfo=timezone.utc)  # KST 23:59
+    assert quota.try_acquire(t) and quota.try_acquire(t)
+    assert not quota.try_acquire(t)
+    status = quota.status(t)
+    assert (status["used"], status["remaining"]) == (2, 0)
+    assert status["resets_at"] == datetime(2026, 9, 29, 0, 0, tzinfo=KST)
+    assert quota.try_acquire(t + timedelta(minutes=1))  # KST 자정이 지나면 초기화
+    assert DailyQuota(0).status(t)["limit"] is None
+
+
+def test_query_returns_429_after_daily_limit(client, monkeypatch):
+    monkeypatch.setattr(main, "get_nlq_provider", lambda requested: EchoProvider())
+    monkeypatch.setattr(main, "NLQ_QUOTA", DailyQuota(1))
+    assert client.post("/query", json={"question": "설비 목록"}).status_code == 200
+    res = client.post("/query", json={"question": "설비 목록"})
+    assert res.status_code == 429 and "1회" in res.json()["detail"]
+    assert client.get("/query/quota").json() | {"resets_at": None} == {"limit": 1, "used": 1, "remaining": 0, "resets_at": None}
+
+
+def test_quota_is_not_used_when_provider_unavailable(client, no_keys, monkeypatch):
+    monkeypatch.setattr(main, "NLQ_QUOTA", DailyQuota(1))
+    assert client.post("/query", json={"question": "설비 목록"}).status_code == 503
+    assert client.get("/query/quota").json()["used"] == 0
+
+
+def test_allowed_providers_rejects_others(no_keys, monkeypatch):
+    from fastapi import HTTPException
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("NLQ_ALLOWED_PROVIDERS", "gemini")
+    monkeypatch.setenv("NLQ_PROVIDER", "gemini")
+    assert isinstance(main.get_nlq_provider(None), GeminiProvider)
+    with pytest.raises(HTTPException) as e:
+        main.get_nlq_provider("claude")  # 방문자가 요청 본문으로 다른 제공자를 고를 수 없게
+    assert e.value.status_code == 403
+
+
+def test_chat_page_is_served(client):
+    res = client.get("/chat")
+    assert res.status_code == 200 and "/query" in res.text and "__GRAFANA_URL__" not in res.text
+    assert client.get("/", follow_redirects=False).headers["location"] == "/chat"
 
 
 # ---------- Claude 어댑터 ----------

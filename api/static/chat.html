@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mini-mes 자연어 질의</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #667085; --line: #e3e6eb;
+    --accent: #2f6fde; --accent-text: #ffffff; --user: #e8f0fd; --err: #b42318; --err-bg: #fdecea;
+    --ok: #067647; --code: #f1f3f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --panel: #1b1f27; --text: #e6e9ef; --muted: #98a2b3; --line: #2c323d;
+      --accent: #5b8ff0; --accent-text: #0b0e13; --user: #1f2b42; --err: #f97066; --err-bg: #3a1d1b;
+      --ok: #47cd89; --code: #232833;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.6 system-ui, -apple-system, "Segoe UI", "Noto Sans KR", sans-serif; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 16px; display: flex; flex-direction: column; min-height: 100vh; }
+  header { padding: 20px 0 12px; border-bottom: 1px solid var(--line); }
+  header h1 { margin: 0; font-size: 20px; }
+  header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+  nav { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-size: 13px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  #log { flex: 1; padding: 16px 0; display: flex; flex-direction: column; gap: 14px; }
+  .msg { padding: 12px 14px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line);
+         overflow-wrap: anywhere; }
+  .msg.user { align-self: flex-end; background: var(--user); border-color: transparent; max-width: 85%; white-space: pre-wrap; }
+  .msg.error { background: var(--err-bg); color: var(--err); border-color: transparent; }
+  .msg .meta { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .answer ul { margin: 4px 0; padding-left: 20px; }
+  .answer p { margin: 0 0 6px; }
+  code { background: var(--code); padding: 1px 4px; border-radius: 4px; font-size: 13px; }
+  details { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 8px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  .call { margin-top: 10px; }
+  .call-head { font-size: 13px; font-weight: 600; }
+  .call-head .ok { color: var(--ok); } .call-head .fail { color: var(--err); }
+  pre { background: var(--code); padding: 8px 10px; border-radius: 6px; overflow-x: auto; font-size: 12px; margin: 6px 0; }
+  .table-scroll { overflow-x: auto; margin: 6px 0; }
+  table { border-collapse: collapse; font-size: 12px; width: max-content; min-width: 100%; }
+  th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; white-space: nowrap; }
+  th { background: var(--code); }
+  .examples { display: flex; flex-wrap: wrap; gap: 8px; }
+  .examples button { border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 999px;
+                     padding: 6px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+  .examples button:hover { border-color: var(--accent); }
+  form { position: sticky; bottom: 0; background: var(--bg); padding: 12px 0 16px; border-top: 1px solid var(--line); }
+  .row { display: flex; gap: 8px; }
+  textarea { flex: 1; resize: none; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line);
+             background: var(--panel); color: var(--text); font: inherit; min-height: 44px; }
+  button.send { padding: 0 18px; border: 0; border-radius: 8px; background: var(--accent); color: var(--accent-text);
+                font: inherit; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .status { font-size: 12px; color: var(--muted); margin-top: 6px; display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>mini-mes 자연어 질의</h1>
+    <p>설비·가동률(OEE)·불량·이상탐지 데이터를 자연어로 묻습니다. LLM은 SQL을 만들지 않고 검증된 읽기 전용 도구만 호출하며, 답변마다 근거(도구·인자·결과)를 보여 줍니다.</p>
+    <nav>
+      <a href="__GRAFANA_URL__">Grafana 대시보드</a>
+      <a href="/docs">API 문서</a>
+      <a href="https://pmhllll12.github.io/mini-mes/nlq/">설계·평가 기록</a>
+      <a href="https://github.com/pmhllll12/mini-mes">GitHub</a>
+    </nav>
+  </header>
+
+  <main id="log">
+    <div class="msg">
+      <div>예시 질문을 누르거나 직접 입력해 보세요. 각 질문은 독립적으로 처리됩니다 (이전 대화를 기억하지 않음).</div>
+      <div class="examples" style="margin-top:10px">
+        <button type="button">지금 등록된 설비 목록 알려줘</button>
+        <button type="button">오늘 전체 설비 OEE 알려줘</button>
+        <button type="button">최근 24시간 동안 이상이 가장 많이 탐지된 설비는?</button>
+        <button type="button">어제 EQ-002에서 가장 많이 나온 불량 유형은?</button>
+        <button type="button">어제 일일 리포트 보여줘</button>
+      </div>
+    </div>
+  </main>
+
+  <form id="form">
+    <div class="row">
+      <textarea id="q" rows="1" maxlength="500" placeholder="질문을 입력하세요" required></textarea>
+      <button class="send" id="send" type="submit">보내기</button>
+    </div>
+    <div class="status"><span id="quota"></span><span>Enter 보내기 · Shift+Enter 줄바꿈</span></div>
+  </form>
+</div>
+
+<script>
+const log = document.getElementById("log");
+const form = document.getElementById("form");
+const q = document.getElementById("q");
+const send = document.getElementById("send");
+const quotaEl = document.getElementById("quota");
+let exhausted = false;
+
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// LLM 답변의 간단한 마크다운(굵게, 코드, 목록)만 처리 - 먼저 이스케이프하므로 HTML은 그대로 출력되지 않음
+function renderAnswer(text) {
+  const inline = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/`([^`]+)`/g, "<code>$1</code>");
+  let html = "", inList = false;
+  for (const line of String(text).split("\n")) {
+    const m = line.match(/^\s*[-*]\s+(.*)$/);
+    if (m) { if (!inList) { html += "<ul>"; inList = true; } html += `<li>${inline(m[1])}</li>`; continue; }
+    if (inList) { html += "</ul>"; inList = false; }
+    if (line.trim()) html += `<p>${inline(line)}</p>`;
+  }
+  return html + (inList ? "</ul>" : "");
+}
+
+const cell = (v) => (v !== null && typeof v === "object" ? JSON.stringify(v) : v ?? "");
+
+function table(rows) {
+  const cols = [...new Set(rows.flatMap((r) => Object.keys(r)))];
+  return `<div class="table-scroll"><table><thead><tr>${cols.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>` +
+    rows.map((r) => `<tr>${cols.map((c) => `<td>${esc(cell(r[c]))}</td>`).join("")}</tr>`).join("") + "</tbody></table></div>";
+}
+
+// 도구 결과: 객체 배열은 표로, 나머지 값은 JSON으로
+function renderResult(result) {
+  const isRows = (v) => Array.isArray(v) && v.length > 0 && v.every((r) => r && typeof r === "object" && !Array.isArray(r));
+  if (isRows(result)) return table(result);
+  if (result && typeof result === "object" && !Array.isArray(result)) {
+    let html = "";
+    const rest = {};
+    for (const [k, v] of Object.entries(result)) {
+      if (isRows(v)) html += `<div class="call-head">${esc(k)}</div>${table(v)}`;
+      else rest[k] = v;
+    }
+    if (Object.keys(rest).length) html = `<pre>${esc(JSON.stringify(rest, null, 2))}</pre>` + html;
+    return html;
+  }
+  return `<pre>${esc(JSON.stringify(result, null, 2))}</pre>`;
+}
+
+function renderCalls(calls) {
+  if (!calls.length) return "";
+  return `<details><summary>근거: 도구 호출 ${calls.length}건</summary>` + calls.map((c) => `
+    <div class="call">
+      <div class="call-head">${esc(c.name)} <span class="${c.ok ? "ok" : "fail"}">${c.ok ? "성공" : "실패"}</span></div>
+      <pre>${esc(JSON.stringify(c.input, null, 2))}</pre>
+      ${c.ok ? renderResult(c.result) : `<pre>${esc(c.error)}</pre>`}
+    </div>`).join("") + "</details>";
+}
+
+function add(cls, html) {
+  const div = document.createElement("div");
+  div.className = `msg ${cls}`;
+  div.innerHTML = html;
+  log.appendChild(div);
+  div.scrollIntoView({ behavior: "smooth", block: "end" });
+  return div;
+}
+
+async function refreshQuota() {
+  try {
+    const res = await fetch("/query/quota");
+    if (!res.ok) return;
+    const d = await res.json();
+    exhausted = d.limit !== null && d.remaining <= 0;
+    const reset = new Date(d.resets_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+    quotaEl.textContent = d.limit === null ? "" : `오늘 남은 질문 ${d.remaining}/${d.limit} (초기화 ${reset} KST)`;
+    send.disabled = exhausted;
+  } catch (e) { /* 표시만 생략 */ }
+}
+
+async function ask(question) {
+  add("user", esc(question));
+  const pending = add("", "<span class=\"meta\">도구를 고르고 조회하는 중... (10초 정도 걸릴 수 있어요)</span>");
+  send.disabled = true;
+  try {
+    const res = await fetch("/query", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }) });
+    const text = await res.text();
+    let body = null;
+    try { body = JSON.parse(text); } catch (e) { /* 프록시가 준 텍스트 응답 */ }
+    if (!res.ok) {
+      const detail = body && body.detail ? (typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail)) : text.trim();
+      const hint = res.status === 429 && !(body && body.detail) ? "요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요." : detail;
+      pending.remove();
+      add("error", esc(`${res.status} ${hint}`));
+      return;
+    }
+    pending.innerHTML = `<div class="answer">${renderAnswer(body.answer || "(빈 답변)")}</div>` +
+      `<div class="meta">${esc(body.provider)} · ${esc(body.model)}${body.stop !== "answer" ? " · 종료: " + esc(body.stop) : ""}</div>` +
+      renderCalls(body.tool_calls || []);
+  } catch (e) {
+    pending.remove();
+    add("error", esc(`요청 실패: ${e.message}`));
+  } finally {
+    await refreshQuota();
+    if (!exhausted) send.disabled = false;
+  }
+}
+
+form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const question = q.value.trim();
+  if (!question || send.disabled) return;
+  q.value = "";
+  ask(question);
+});
+q.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); }
+});
+document.querySelectorAll(".examples button").forEach((b) => b.addEventListener("click", () => {
+  if (!send.disabled) ask(b.textContent);
+}));
+refreshQuota();
+</script>
+</body>
+</html>

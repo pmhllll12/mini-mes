@@ -18,6 +18,25 @@ nlq:
   provider: ""         # claude | gemini, 비우면 키가 있는 제공자(claude 우선)
   claudeModel: ""      # 비우면 claude-opus-5
   geminiModel: ""      # 비우면 gemini-flash-latest
+  # 공개 서버용 남용 방지 - 하루(KST) 질문 수 상한(0이면 없음), 허용 제공자(쉼표 구분, 비우면 전부)
+  dailyLimit: 0
+  allowedProviders: ""
+
+# 외부 공개 (K3s 기본 Traefik + cert-manager). 기본 꺼짐 - 로컬 검증은 port-forward
+# 켜면 https://<host>/ 채팅·API, /grafana 대시보드(익명 Viewer). Prometheus는 공개하지 않음
+#   공개: GET·HEAD(/metrics 제외), POST /query(IP당 rateLimit + nlq.dailyLimit)
+#   잠금: 그 밖의 요청(데이터 쓰기 POST, /metrics)은 basic-auth
+# 필요한 것: cert-manager와 ClusterIssuer(infra/k3s/cluster-issuers.yaml), basic-auth Secret(키 users, htpasswd 형식)
+#   kubectl create secret generic <release>-basic-auth --from-literal=users="admin:$(openssl passwd -apr1 ...)"
+ingress:
+  enabled: false
+  host: ""
+  clusterIssuer: letsencrypt-prod
+  basicAuthSecret: ""   # 비우면 "<release>-basic-auth"
+  queryRateLimit:       # POST /query - 클라이언트 IP당
+    average: 3          # period당 평균 요청 수
+    period: 1m
+    burst: 3
 
 db:
   image: postgres:16

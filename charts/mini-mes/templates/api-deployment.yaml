@@ -57,6 +57,14 @@ spec:
               value: {{ .Values.nlq.claudeModel | quote }}
             - name: GEMINI_MODEL
               value: {{ .Values.nlq.geminiModel | quote }}
+            - name: NLQ_DAILY_LIMIT
+              value: {{ .Values.nlq.dailyLimit | quote }}
+            - name: NLQ_ALLOWED_PROVIDERS
+              value: {{ .Values.nlq.allowedProviders | quote }}
+            {{- if and .Values.ingress.enabled .Values.monitoring.enabled }}
+            - name: GRAFANA_PUBLIC_URL   # 채팅 화면의 대시보드 링크
+              value: "https://{{ .Values.ingress.host }}/grafana/"
+            {{- end }}
           readinessProbe:
             httpGet:
               path: /health

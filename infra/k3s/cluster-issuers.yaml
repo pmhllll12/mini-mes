@@ -1,0 +1,24 @@
+# cert-manager ClusterIssuer - deploy.sh가 cert-manager 설치 후 적용한다
+# letsencrypt-prod: 서버용. HTTP-01 확인은 K3s 기본 Traefik이 처리 (보안 목록에서 80 열려 있어야 함)
+#   이메일은 두지 않는다 (Let's Encrypt 만료 알림 메일은 종료됨, cert-manager가 자동 갱신)
+# selfsigned: k3d 로컬 검증용 (인터넷에서 접근할 수 없는 호스트)
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-prod-account
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: traefik
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned
+spec:
+  selfSigned: {}

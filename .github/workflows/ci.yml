@@ -93,6 +93,10 @@ jobs:
           helm template mini-mes charts/mini-mes > /dev/null
           helm template mini-mes charts/mini-mes --set monitoring.enabled=false --set anomalyWorker.enabled=false > /dev/null
           helm template mini-mes charts/mini-mes --set monitoring.prometheus.persistence.enabled=false > /dev/null
+          # 서버 values (외부 공개 Ingress 포함)
+          helm lint charts/mini-mes -f infra/k3s/values-oci.yaml
+          helm template mini-mes charts/mini-mes -f infra/k3s/values-oci.yaml > /dev/null
+          helm template mini-mes charts/mini-mes -f infra/k3s/values-oci.yaml --set monitoring.enabled=false > /dev/null
 
   terraform:
     runs-on: ubuntu-24.04

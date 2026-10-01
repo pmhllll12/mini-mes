@@ -1,0 +1,13 @@
+# K3s 기본 Traefik 설정 덮어쓰기 - deploy.sh가 적용
+# externalTrafficPolicy: Local - 클라이언트 IP를 보존해 /query의 IP당 rateLimit이 실제 방문자 단위로 동작하게 한다
+#   (Cluster면 ServiceLB를 거치며 출발지 IP가 노드 내부 주소로 바뀔 수 있음. 단일 노드라 Local의 단점(노드 간 분산 없음)은 없음)
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    service:
+      spec:
+        externalTrafficPolicy: Local

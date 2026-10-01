@@ -3,11 +3,12 @@ import io
 import os
 import time
 from dataclasses import asdict
+from pathlib import Path
 from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import FastAPI, Depends, HTTPException, Query, Request, Response
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -20,6 +21,7 @@ from quality import calculate_defect_summary
 from anomaly import DRIFT_ALARM_CSV_COLUMNS, list_drift_alarms, summarize_anomalies
 from report import REPORT_COLUMNS, build_daily_report, load_daily_reports, save_daily_report, yesterday_kst
 from nlq_providers import ClaudeProvider, GeminiProvider, NLQProviderError, OpenAICompatProvider, user_message
+from nlq_quota import DailyQuota
 from nlq_tools import TOOL_NAMES, ToolError, execute_tool
 
 # 로컬 개발 편의를 위해 앱 시작 시 테이블 자동 생성
@@ -282,6 +284,8 @@ def get_drift_alarms(
 
 NLQ_MAX_ROUNDS = int(os.getenv("NLQ_MAX_ROUNDS", "3"))
 NLQ_TIMEOUT_SEC = float(os.getenv("NLQ_TIMEOUT_SEC", "60"))
+# 공개 서버용 남용 방지 - 하루 질문 수 상한(0이면 없음), 허용 제공자(쉼표 구분, 비우면 전부)
+NLQ_QUOTA = DailyQuota(int(os.getenv("NLQ_DAILY_LIMIT", "0") or 0))
 
 
 def get_nlq_provider(requested: Optional[str]):
@@ -298,6 +302,9 @@ def get_nlq_provider(requested: Optional[str]):
         raise HTTPException(status_code=503, detail="자연어 질의 비활성: ANTHROPIC_API_KEY, GEMINI_API_KEY 또는 OPENAI_COMPAT_BASE_URL·OPENAI_COMPAT_MODEL을 설정하세요")
     if name not in configured:
         raise HTTPException(status_code=400, detail=f"알 수 없는 provider: {name} (claude, gemini, openai_compat)")
+    allowed = [p.strip() for p in os.getenv("NLQ_ALLOWED_PROVIDERS", "").split(",") if p.strip()]
+    if allowed and name not in allowed:
+        raise HTTPException(status_code=403, detail=f"이 서버에서 허용하지 않는 provider: {name} (허용: {', '.join(allowed)})")
     if not configured[name]:
         raise HTTPException(status_code=503, detail=f"자연어 질의 비활성: {name} 설정이 없습니다")
     if name == "claude":
@@ -314,6 +321,10 @@ def natural_language_query(payload: schemas.QueryIn, db: Session = Depends(get_d
     응답에 호출한 도구·인자·결과를 함께 담아 답변의 근거를 확인할 수 있게 한다.
     """
     provider = get_nlq_provider(payload.provider)
+    if not NLQ_QUOTA.try_acquire():
+        q = NLQ_QUOTA.status()
+        raise HTTPException(status_code=429, detail=f"오늘 자연어 질의 한도({q['limit']}회)를 모두 사용했습니다. "
+                                                    f"{q['resets_at']:%m-%d %H:%M} KST에 초기화됩니다")
 
     def run_tool(name: str, args: dict):
         label = name if name in TOOL_NAMES else "unknown"
@@ -332,6 +343,27 @@ def natural_language_query(payload: schemas.QueryIn, db: Session = Depends(get_d
         raise HTTPException(status_code=502, detail=str(e))
     NLQ_REQUESTS.labels(provider.name, result.stop).inc()
     return asdict(result)
+
+
+@app.get("/query/quota", response_model=schemas.QueryQuotaOut)
+def natural_language_query_quota():
+    """오늘(KST) 자연어 질의 사용량. limit·remaining이 null이면 상한 없음"""
+    return NLQ_QUOTA.status()
+
+
+# 채팅 화면 - /query를 부르는 정적 페이지. 대시보드 링크는 배포 환경마다 달라 GRAFANA_PUBLIC_URL로 받는다
+CHAT_HTML = (Path(__file__).parent / "static" / "chat.html").read_text(encoding="utf-8").replace(
+    "__GRAFANA_URL__", os.getenv("GRAFANA_PUBLIC_URL", "").strip() or "http://localhost:3000")
+
+
+@app.get("/", include_in_schema=False)
+def root():
+    return RedirectResponse("/chat")
+
+
+@app.get("/chat", response_class=HTMLResponse, include_in_schema=False)
+def chat_page():
+    return CHAT_HTML
 
 
 # ---------- 일일 리포트 (예약 리포트) ----------

@@ -211,6 +211,8 @@ curl -X POST http://localhost:8001/query -H 'Content-Type: application/json' \
 - 제공자 두 가지 (`api/nlq_providers.py`): Claude(`claude-opus-5`, strict 도구, 거절 시 서버측 `fallbacks="default"`) / Gemini(`gemini-flash-latest`, 수동 function calling). 요청의 `provider`, 환경변수 `NLQ_PROVIDER`, 키가 있는 제공자 순으로 고릅니다.
 - **API 키는 `.env`에만** 넣습니다: `cp .env.example .env` 후 `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` 입력 (`.env`는 커밋되지 않음). 키가 없으면 `/query`만 503이고 다른 API는 그대로 동작합니다.
 - 메트릭: `mes_nlq_requests_total{provider,outcome}`, `mes_nlq_tool_calls_total{provider,tool,ok}` — Grafana "자연어 질의 요청", "자연어 질의 도구 호출" 패널
+- **채팅 화면** `/chat` (`/`도 여기로): 질문을 입력하면 `/query`를 호출해 답변과 근거(도구·인자·결과 표)를 보여 주는 정적 페이지 (`api/static/chat.html`, 외부 라이브러리 없음). compose에서는 http://localhost:8001/chat
+- **공개 서버용 남용 방지:** 하루(KST) 질문 수 상한 `NLQ_DAILY_LIMIT`(0이면 없음, 넘으면 429, 남은 횟수는 `GET /query/quota`), 허용 제공자 `NLQ_ALLOWED_PROVIDERS`(요청 본문의 `provider`로 다른 제공자를 못 고르게, 403). 서버에서는 Gemini만·하루 8건 + Traefik의 IP당 rateLimit (아래 "Oracle Cloud K3s 배포")
 
 - 제공자: Claude·Gemini 외에 **OpenAI 호환 어댑터**(`openai_compat`, 로컬 Ollama·OpenAI·Groq 등 설정만으로). 로컬 `qwen2.5:7b-instruct`(RTX 3050)로 13개 평가 9/13(언어·설비 언급 검사 추가 후 8/13, 09-30 재평가 6/13으로 실행 간 편차 큼, 설비 누락·필드 나열 검사 추가 후 5/13)·평균 5~9초 — 도구 호출 형식 오류·설비 ID 추측·중국어 답변이 있어 서비스용으로는 부족, 반복 확인용 (상세는 docs/nlq.md)
 
@@ -386,7 +388,11 @@ minikube를 쓴다면 2)의 `k3d image import` 대신 `minikube image load mini-
 K3s 서버는 Oracle Cloud 상시 무료 ARM VM(A1.Flex, 오사카 `ap-osaka-1`)에 올립니다. `infra/terraform/oci/`가 VCN·인터넷 게이트웨이·서브넷·보안 목록·VM을 만들고, cloud-init이 K3s를 설치합니다.
 구성도·보안 설계·CI/CD·검증 기록은 **[인프라 상세 문서](docs/infra.md)**([GitHub Pages](https://pmhllll12.github.io/mini-mes/infra/))에 정리했습니다.
 
-- **외부 노출 최소화:** 보안 목록 인바운드는 SSH(22)를 내 IP(`allowed_ssh_cidr`, `0.0.0.0/0`은 validation으로 거부)에만 허용합니다. K3s API·api·Grafana는 열지 않고 SSH 터널로 접속합니다. `/query`를 공개하면 LLM 한도가 남용될 수 있어 공개 여부는 따로 정합니다.
+- **외부 노출 최소화:** 보안 목록 인바운드는 SSH(22)를 내 IP(`allowed_ssh_cidr`, `0.0.0.0/0`은 validation으로 거부)에만 허용합니다. K3s API·Prometheus는 열지 않고 SSH 터널로 접속합니다.
+- **외부 공개 (준비 완료, VM 생성 후 적용):** `https://mes.pmhllll12.cloud` — K3s 기본 Traefik(IngressRoute) + cert-manager(Let's Encrypt HTTP-01). 보안 목록 80/443과 DNS A 레코드는 VM 생성 후 추가합니다.
+  - 공개: 채팅 화면·API 조회(GET, `/docs` 포함), `/grafana`(익명 Viewer)
+  - `POST /query`: 공개하되 IP당 rateLimit(분당 약 3회) + 하루 8건 상한 + Gemini만 허용 — 무료 한도(하루 20회)를 방문자가 다 쓰지 않게
+  - 잠금(basic-auth): 생산실적·품질 이벤트 등록, 리포트 재생성 등 그 밖의 요청과 `/metrics`
 - **Oracle Ubuntu 이미지의 iptables:** 기본 규칙이 22 외 INPUT과 모든 FORWARD를 REJECT해 파드 네트워크가 막히므로, cloud-init에서 REJECT 규칙만 지웁니다 (외부 방화벽은 보안 목록이 담당).
 - **이미지:** VM이 ARM이라 CI가 main 푸시 때 `ghcr.io/pmhllll12/mini-mes-{api,anomaly-worker}`를 amd64/arm64로 빌드해 올립니다 (`sha-<커밋>`, `latest` 태그). 서버용 values는 `infra/k3s/values-oci.yaml`.
 - **비용 안전장치:** `budget.tf`가 월 예산과 이메일 알림(실제 지출이 예산의 1% 초과, 월말 예상 초과)을 만듭니다. 상시 무료만 쓰므로 지출은 0이어야 하고, 과금이 생기면 바로 알기 위함입니다 (알림일 뿐 지출을 막지는 않음). 수신 이메일은 `terraform.tfvars`의 `budget_alert_email`.
@@ -402,8 +408,8 @@ TF_VAR_ocpus=1 TF_VAR_memory_gb=6 ./retry-apply.sh
 
 # 배포: 터널을 켜 둔 채 (terraform output kube_tunnel)
 ssh -N -L 16443:127.0.0.1:6443 ubuntu@$(terraform output -raw public_ip)
-SERVER_IP=$(terraform output -raw public_ip) GRAFANA_ADMIN_PASSWORD=... ../../k3s/deploy.sh
-# 로컬 검증: KUBE_CONTEXT=k3d-<클러스터> GRAFANA_ADMIN_PASSWORD=... infra/k3s/deploy.sh <이미지 태그>
+SERVER_IP=$(terraform output -raw public_ip) GRAFANA_ADMIN_PASSWORD=... MES_ADMIN_PASSWORD=... ../../k3s/deploy.sh
+# 로컬 검증: KUBE_CONTEXT=k3d-<클러스터> GRAFANA_ADMIN_PASSWORD=... MES_ADMIN_PASSWORD=... infra/k3s/deploy.sh <이미지 태그> [helm 추가 인자]
 ```
 
 **배포 경로 로컬 검증 (2026-09-29, k3d + k3s v1.36.4, 서버와 같은 버전):** `KUBE_CONTEXT=k3d-mini-mes-oci GRAFANA_ADMIN_PASSWORD=... infra/k3s/deploy.sh sha-f33e75c` (`KUBE_CONTEXT`를 주면 SSH로 kubeconfig를 가져오지 않고 그 컨텍스트에 같은 values로 배포)
@@ -412,6 +418,14 @@ SERVER_IP=$(terraform output -raw public_ip) GRAFANA_ADMIN_PASSWORD=... ../../k3
 - `/health` 200, 정상 데이터 학습(설비 3개) → 이상 섞인 100건×3 판정(이상 60건), Prometheus 스크레이프 대상 api·워커 up
 - Grafana: 기본 비밀번호 `admin/admin`은 401, 넘긴 비밀번호로만 관리자 API 200
 - 로컬 PC는 amd64라 arm64 이미지의 실행은 확인하지 못함 (CI에서 arm64 빌드·의존성 설치까지만 확인)
+
+**외부 공개 구성 로컬 검증 (2026-10-01, k3d + k3s v1.36.4 / Traefik 3.7.8, 서버와 같은 버전):** `deploy.sh`에 `--set ingress.host=mes.localtest.me --set ingress.clusterIssuer=selfsigned`(인터넷에서 접근할 수 없어 자체 서명)와 로컬 이미지를 넘겨 배포. LLM은 호출하지 않음
+- cert-manager가 인증서 발급(Ready), HTTP → HTTPS 301
+- 공개: `/chat`·`/docs`·`/oee`·`/query/quota`·`/grafana/` 200
+- 잠금: 인증 없이 `/metrics`·`POST /production-logs`·`POST /reports/daily` 401, 인증하면 200 / 422(빈 본문)
+- `POST /query`: `provider=claude`는 403, 연속 요청 6회 중 3번째부터 429(Traefik rateLimit)
+- 파드 5개 Running·재시작 0회
+- 서버에서 확인할 것: Let's Encrypt 실제 발급, rateLimit이 방문자 IP 단위로 동작하는지(Traefik Service `externalTrafficPolicy: Local`)
 
 **현재 상태 (2026-10-01):** 네트워크 5개와 예산 알림은 생성됐고, 남은 리소스는 VM 1개입니다. VM은 오사카 A1 재고 부족(`500-InternalError, Out of host capacity`)으로 계속 실패해 `retry-apply.sh`(1 OCPU / 6GB)로 재시도 중입니다. 유료 클라우드는 이 구성(최소 메모리 4GB)을 상시 운영하면 월 과금이 생겨, 상시 무료 A1을 기다리기로 했습니다. 서버 배포 결과는 VM 생성 후 기록합니다.
 

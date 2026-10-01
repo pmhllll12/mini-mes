@@ -28,13 +28,17 @@ PC ─ ssh :22 (my IP/32 only) ─→ OCI ap-osaka-1               │
  │                               └ VCN 10.0.0.0/16           │
  │                                  └ VM A1.Flex (ARM) ←─────┘
  │                                     └ K3s
- │                                        ├ api, db (PVC)
- └─ ssh -L 16443:127.0.0.1:6443 ────────→ ├ anomaly-worker (PVC)
-    (kubectl, helm)                       ├ Prometheus (PVC), Grafana
-                                          └ CronJob daily-report
+ │  visitor ─ https :443 (:80 → 301) ─→ ├ Traefik ─ cert-manager (Let's Encrypt)
+ │    mes.pmhllll12.cloud               │   ├ /chat, GET, POST /query → api
+ │                                      │   └ /grafana → Grafana
+ │                                      ├ api, db (PVC)
+ └─ ssh -L 16443:127.0.0.1:6443 ──────→ ├ anomaly-worker (PVC)
+    (kubectl, helm)                     ├ Prometheus (PVC), Grafana
+                                        └ CronJob daily-report
 ```
 
-- 외부에서 들어오는 경로는 내 IP의 SSH 하나뿐입니다. `kubectl`·`helm`은 SSH 터널로 K3s API에 붙습니다.
+- 관리 경로는 내 IP의 SSH 하나뿐입니다. `kubectl`·`helm`은 SSH 터널로 K3s API에 붙습니다.
+- 방문자 경로(80/443)는 외부 공개 구성(아래 "보안 설계")으로 준비했고, VM 생성 후 보안 목록·DNS를 추가해 엽니다.
 - 서버는 이미지를 GHCR에서 받아 옵니다 (빌드는 CI만).
 
 ### Terraform (`infra/terraform/oci/`)
@@ -59,7 +63,12 @@ PC ─ ssh :22 (my IP/32 only) ─→ OCI ap-osaka-1               │
 |---|---|---|
 | 외부 노출 | SSH 22만, 내 IP/32만. `0.0.0.0/0`은 변수 validation에서 거부 | 공격 표면 최소화 |
 | K3s API | 6443을 열지 않고 SSH 터널(`ssh -L 16443:127.0.0.1:6443`)로 접속 | API 서버를 인터넷에 노출하지 않음. 공인 IP를 인증서(tls-san)에 넣을 필요도 없음 |
-| api · Grafana · Prometheus | 공개하지 않고 SSH 터널 / `kubectl port-forward` | `/query`가 공개되면 LLM 무료 한도가 남용될 수 있음. 공개 여부는 인증을 붙인 뒤 결정 |
+| 방문자 공개 범위 | Traefik IngressRoute 규칙: GET·HEAD(`/metrics` 제외)와 `/grafana`는 공개, `POST /query`는 rateLimit, 그 밖은 basic-auth | API에 인증이 없어 쓰기 요청(가짜 생산실적 등록 등)을 그대로 열면 데이터가 오염됨. 조회·채팅은 방문자가 직접 써 볼 수 있게 |
+| `POST /query` 남용 | IP당 rateLimit(분당 약 3회, Traefik) + 하루 8건 상한(api, `NLQ_DAILY_LIMIT`, 넘으면 429) + 제공자 Gemini 고정(`NLQ_ALLOWED_PROVIDERS`) | Gemini 무료 등급은 하루 20회이고 질문 1건에 보통 2회 호출. 요청 본문의 `provider`로 다른(유료) 제공자를 고르지 못하게 |
+| 클라이언트 IP | Traefik Service `externalTrafficPolicy: Local` (`infra/k3s/traefik-config.yaml`) | ServiceLB를 거치며 출발지 IP가 바뀌면 rateLimit이 모든 방문자를 한 IP로 묶음 |
+| TLS | cert-manager + Let's Encrypt(HTTP-01), HTTP는 HTTPS로 301 | 인증서 발급·갱신 자동화. ACME 이메일은 두지 않음 (만료 알림 메일 종료, 자동 갱신) |
+| basic-auth 비밀번호 | `deploy.sh`가 `MES_ADMIN_PASSWORD`로 htpasswd(apr1) Secret 생성, 비밀번호는 stdin으로 전달 | values·저장소·프로세스 목록에 비밀번호가 남지 않게 |
+| Prometheus | 공개하지 않고 SSH 터널 / `kubectl port-forward` | 인증이 없고 방문자에게 필요한 화면은 Grafana로 충분 |
 | OCI 자격 증명 | API 키는 `~/.oci/config`와 개인키 파일에만 | 코드·tfvars에 키를 두지 않음 |
 | Terraform 파일 | `terraform.tfvars`, state, plan, kubeconfig는 gitignore | 테넌시 ID·IP·state의 자원 정보가 저장소에 올라가지 않게 |
 | LLM 키 | `.env` → `kubectl create secret`, 차트는 `optional` 참조 | values(커밋됨)에 키를 넣지 않음. Secret이 없어도 `/query`만 503 |
@@ -67,7 +76,7 @@ PC ─ ssh :22 (my IP/32 only) ─→ OCI ap-osaka-1               │
 | Discord 웹훅 URL | `.env` → `<release>-alerting` Secret(optional), 없으면 `.invalid` 기본값 | URL만 알면 누구나 채널에 글을 쓸 수 있는 비밀값. 없어도 Grafana는 떠야 함 |
 
 - Oracle의 Ubuntu 이미지는 기본 iptables가 22번 외 INPUT과 **모든 FORWARD를 REJECT**해 파드 네트워크가 막힙니다. cloud-init에서 REJECT 규칙만 지우고, 외부 방화벽 역할은 VCN 보안 목록에 맡깁니다.
-- Grafana는 익명 Viewer 접근이 켜져 있습니다. 서버에서는 터널로만 열리므로 그대로 두되, 외부에 공개할 때는 꺼야 합니다.
+- Grafana는 익명 Viewer 접근을 켠 채 `/grafana`로 공개합니다 (대시보드 조회만, 편집·관리는 관리자 비밀번호). 데이터소스는 MES 메트릭뿐인 Prometheus입니다.
 
 ## CI/CD
 
@@ -85,7 +94,7 @@ PC ─ ssh :22 (my IP/32 only) ─→ OCI ap-osaka-1               │
 - Terraform은 CI에서 자격 증명 없이 문법·구성만 검사하고, `plan`/`apply`는 로컬에서 합니다.
 - **자동 배포(CD)는 아직 없습니다.** 서버 SSH가 내 IP에만 열려 있어 GitHub Actions 러너가 접속할 수 없기 때문입니다. 배포는 `infra/k3s/deploy.sh <이미지 태그>`로 커밋 단위 태그를 지정해 합니다. 서버 안에서 이미지를 끌어오는 방식(pull 기반 GitOps)이 다음 후보입니다.
 
-## Helm 차트 (`charts/mini-mes/`, 0.7.0)
+## Helm 차트 (`charts/mini-mes/`, 0.8.0)
 
 | 구성 요소 | 리소스 | 비고 |
 |---|---|---|
@@ -95,6 +104,7 @@ PC ─ ssh :22 (my IP/32 only) ─→ OCI ap-osaka-1               │
 | Prometheus · Grafana | Deployment · Service · PVC(Prometheus) · ConfigMap | compose의 `monitoring/` 구성과 같음, 대시보드 프로비저닝 |
 | 일일 리포트 | CronJob | 매일 00:10 `Asia/Seoul`에 `POST /reports/daily` (전날 리포트 저장) |
 | 알림 | Grafana 알림 규칙 ConfigMap, 웹훅 Secret(optional) | 열화 경보·급변 이상 다발·수집 대상 다운·모델 없음 → Discord |
+| 외부 공개 (`ingress.enabled`, 기본 꺼짐) | Certificate · Traefik IngressRoute · Middleware(redirect, basic-auth, rateLimit) | 켜면 Grafana를 `/grafana` 하위 경로로 제공(`GF_SERVER_ROOT_URL`), cert-manager·ClusterIssuer는 `deploy.sh`가 설치 |
 
 - `files/schema.sql`, `files/grafana-dashboard.json`은 원본의 복사본입니다 (Helm은 차트 밖 파일을 못 읽음). CI의 chart 작업이 원본과 diff로 비교해 어긋나면 실패합니다.
 - 차트가 쓰는 외부 이미지(postgres, Prometheus, Grafana, curl)는 모두 arm64를 지원합니다.
@@ -110,12 +120,14 @@ PC ─ ssh :22 (my IP/32 only) ─→ OCI ap-osaka-1               │
 | 2026-09-29 | Oracle Cloud ap-osaka-1 | 예산·알림 규칙 (`plan -target`으로 예산 3개만, 재시도 스크립트 멈춘 뒤 적용) | 3개 생성 |
 | 2026-09-29 | Oracle Cloud ap-osaka-1 | `terraform apply` (plan 6개) | 네트워크 5개 생성, VM은 `Out of host capacity` → 재시도 중 |
 | 2026-10-01 | Oracle Cloud ap-osaka-1 | `retry-apply.sh` (1 OCPU / 6GB, 2분 간격), plan은 VM 1개 추가만 남음 | 계속 `Out of host capacity` → 재시도 중 |
+| 2026-10-01 | k3d (k3s v1.36.4 / Traefik 3.7.8), 차트 0.8.0 | 외부 공개 구성을 `deploy.sh`로 배포 (자체 서명 ClusterIssuer, `mes.localtest.me`, LLM 호출 없음) | 인증서 Ready, HTTP→HTTPS 301, 공개 경로 200, 쓰기·`/metrics`는 인증 없이 401·인증 시 통과, `/query` 다른 제공자 403·연속 6회 중 3번째부터 429, 파드 5개 재시작 0회 (k3s v1.30 / Traefik 2.11에서도 같은 결과) |
 
 **아직 확인하지 못한 것**
 
 - arm64 이미지의 실제 실행 (로컬 PC가 amd64. CI에서 arm64 빌드·의존성 설치까지만 확인)
 - 서버에서의 cloud-init(iptables 정리, K3s 설치)과 파드 네트워크
 - CronJob이 정해진 시각에 자동 실행되는지, API가 실패할 때 Job이 실패로 처리되는지
+- Let's Encrypt 실제 인증서 발급(HTTP-01), 서버에서 rateLimit이 방문자 IP 단위로 동작하는지 (k3d는 앞단 프록시가 출발지 IP를 바꿔 확인 불가)
 
 ## 발견한 문제
 
@@ -132,6 +144,7 @@ PC ─ ssh :22 (my IP/32 only) ─→ OCI ap-osaka-1               │
 ## 한계와 다음 단계
 
 - **스키마 마이그레이션 도구가 없습니다.** DB 초기화 스크립트는 최초 1회만 실행되므로, 서버에 한 번 배포한 뒤 테이블이 추가되면 `schema.sql`을 직접 적용해야 합니다 (현재 스키마는 모두 `IF NOT EXISTS`라 다시 적용해도 안전).
-- 알림 메시지의 Grafana 링크가 `http://localhost:3000`(외부 주소 기본값)을 가리킵니다. 서버에서는 `GF_SERVER_ROOT_URL`을 접속 방식에 맞춰 지정해야 합니다.
+- 알림 메시지의 Grafana 링크는 외부 공개를 켜면 `https://<host>/grafana/`, 끄면 `http://localhost:3000`(기본값)을 가리킵니다.
+- 자연어 질의 하루 상한은 api 프로세스 메모리에서 셉니다 (replica 1 기준, 재시작하면 0부터). 그 이상은 Gemini 무료 한도 자체가 막습니다.
 - 노드 1대라 VM이 멈추면 서비스도 멈춥니다. PVC는 K3s 기본 local-path(노드 디스크)입니다.
-- 다음: VM 생성 → 서버 배포와 위 미확인 항목 검증 → 자동 배포(pull 기반) 검토 → 외부 공개가 필요하면 인증을 붙인 Ingress.
+- 다음: VM 생성 → 보안 목록 80/443·DNS A 레코드 추가 → 서버 배포와 위 미확인 항목 검증 → 자동 배포(pull 기반) 검토.

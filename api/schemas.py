@@ -133,3 +133,11 @@ class QueryOut(BaseModel):
     answer: str
     stop: str                      # answer | max_rounds | max_tokens | refusal
     tool_calls: List[QueryToolCall]
+
+
+class QueryQuotaOut(BaseModel):
+    """자연어 질의 하루 사용량 (KST 자정에 초기화). limit·remaining이 None이면 상한 없음"""
+    limit: Optional[int]
+    used: int
+    remaining: Optional[int]
+    resets_at: datetime

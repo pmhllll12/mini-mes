@@ -33,6 +33,9 @@ services:
       OPENAI_COMPAT_MODEL: ${OPENAI_COMPAT_MODEL:-}
       OPENAI_COMPAT_API_KEY: ${OPENAI_COMPAT_API_KEY:-}
       NLQ_TIMEOUT_SEC: ${NLQ_TIMEOUT_SEC:-60}
+      # 공개 서버용 남용 방지 - 하루 질문 상한(0이면 없음), 허용 제공자(쉼표 구분, 비우면 전부)
+      NLQ_DAILY_LIMIT: ${NLQ_DAILY_LIMIT:-0}
+      NLQ_ALLOWED_PROVIDERS: ${NLQ_ALLOWED_PROVIDERS:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"   # 호스트(WSL)에서 도는 Ollama 접속용
     ports:
