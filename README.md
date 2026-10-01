@@ -267,6 +267,7 @@ curl -X POST http://localhost:8001/query -H 'Content-Type: application/json' \
 - Grafana: http://localhost:3000 (admin/admin, 로컬 전용 기본 계정) — "mini-mes 개요" 대시보드가 자동으로 로드됨
   - 이상탐지 패널: "이상 점수 추이"(설비별 점수 + 점선 threshold), "이상 탐지 횟수 (최근 1시간)", "열화 점수 추이", "열화 경보 상태"(경보 여부 + 최근 1시간 경보 횟수)
   - 자연어 질의 패널: "자연어 질의 요청 (최근 1시간, 제공자·결과별)", "자연어 질의 도구 호출 (최근 1시간)"
+  - 상단 링크: "자연어 질의 채팅", "API 문서" (원본은 compose 주소 `http://localhost:8001/`, 차트에서 외부 공개를 켜면 `https://<host>/`로 바꿔 넣음)
   - 프로비저닝 파일: `monitoring/grafana/provisioning/`(datasource·dashboard·alerting 등록), `monitoring/grafana/dashboards/mini-mes.json`(대시보드 정의)
 
 ### 알림 (Grafana Alerting → Discord)

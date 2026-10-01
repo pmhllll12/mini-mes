@@ -55,7 +55,12 @@ metadata:
     {{- include "mini-mes.labels" . | nindent 4 }}
 data:
   mini-mes.json: |
-{{ .Files.Get "files/grafana-dashboard.json" | indent 4 }}
+{{- /* 대시보드 상단 링크(채팅·API 문서)는 원본에 compose 주소가 들어 있어, 외부 공개 시 서버 주소로 바꾼다 */}}
+{{- $dashboard := .Files.Get "files/grafana-dashboard.json" }}
+{{- if .Values.ingress.enabled }}
+{{- $dashboard = replace "http://localhost:8001/" (printf "https://%s/" .Values.ingress.host) $dashboard }}
+{{- end }}
+{{ $dashboard | indent 4 }}
 ---
 # 알림 규칙·Discord 수신처 (monitoring/grafana/provisioning/alerting/alerting.yml 복사본)
 apiVersion: v1

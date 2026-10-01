@@ -8,6 +8,10 @@
   "version": 1,
   "refresh": "10s",
   "time": { "from": "now-6h", "to": "now" },
+  "links": [
+    { "title": "자연어 질의 채팅", "type": "link", "icon": "external link", "url": "http://localhost:8001/chat", "targetBlank": true, "tooltip": "설비·OEE·불량·이상탐지를 자연어로 질문 (답변마다 근거 표시)" },
+    { "title": "API 문서", "type": "link", "icon": "doc", "url": "http://localhost:8001/docs", "targetBlank": true, "tooltip": "조회·집계·CSV 내보내기 API" }
+  ],
   "panels": [
     {
       "id": 1,
