@@ -28,7 +28,7 @@ FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana, GitHub 
 - helm·k3d·terraform·kubectl은 ~/.local/bin에 설치됨 (helm v3.16.2, k3d v5.7.4, terraform 1.16.4, kubectl 1.36.5). k3d 검증 시 호스트 8001은 compose API가 쓰므로 port-forward는 18001 등 다른 포트 사용
 - LLM API 키는 루트 .env에만 (ANTHROPIC_API_KEY, GEMINI_API_KEY, .env.example 참고). 키 값을 출력·커밋하지 않는다. Gemini 무료 등급은 모델당 하루 20회 한도 (gemini-flash-latest=gemini-3.8-flash, gemini-2.5-flash는 별도 한도). Anthropic 조직 크레딧 $0이라 Claude는 미검증
 - Gemini function calling: 함수 결과는 role="user"로 전송 (role="tool"은 Developer API가 400)
-- 로컬 LLM: WSL의 Ollama(~/.ollama-local/bin/ollama, 0.32.15, localhost:11434, RTX 3050 8GB). API 컨테이너는 host.docker.internal:11434/v1 (compose extra_hosts). .env에 OPENAI_COMPAT_BASE_URL/MODEL, 기본 NLQ_PROVIDER=gemini 유지하고 요청의 provider=openai_compat로 사용. qwen2.5:7b-instruct는 9/13(형식 오류·ID 추측·중국어), qwen3:4b는 도구 호출을 텍스트로 내서 실패. 로컬 평가는 한도 없음 → 확인 없이 돌려도 됨(Gemini·Claude 평가만 사전 확인)
+- 로컬 LLM: WSL의 Ollama(~/.ollama-local/bin/ollama, 0.32.15, localhost:11434, RTX 3050 8GB). API 컨테이너는 host.docker.internal:11434/v1 (compose extra_hosts). .env에 OPENAI_COMPAT_BASE_URL/MODEL, 기본 NLQ_PROVIDER=gemini 유지하고 요청의 provider=openai_compat로 사용. 10-01 비교(같은 채점, 1회): qwen3:8b 12/13(EQ ID 혼동 1, 평균 46초, 100% GPU), llama3.1:8b 7/13(기간 오류), qwen2.5:7b-instruct 6/13, granite3.3:8b 1/13·qwen3:4b는 도구 호출을 텍스트로 내서 실패. Windows Ollama(0.35)가 켜져 있으면 host.docker.internal:11434가 그쪽으로 가서 404 → 종료해도 WSL 포트 중계가 안 돌아오면 OPENAI_COMPAT_BASE_URL=http://<WSL eth0 IP>:11434/v1 docker compose up -d api 로 덮어써 실행(.env는 그대로). 로컬 평가는 한도 없음 → 확인 없이 돌려도 됨(Gemini·Claude 평가만 사전 확인)
 - 로컬 python은 3.14라 scikit-learn 고정 버전 설치가 안 됨 → 워커/평가 테스트는 python:3.12 컨테이너에서 실행
 
 ## 이상탐지 규칙

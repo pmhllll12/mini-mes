@@ -221,7 +221,7 @@ curl -X POST http://localhost:8001/query -H 'Content-Type: application/json' \
 - **채팅 화면** `/chat` (`/`도 여기로): 질문을 입력하면 `/query`를 호출해 답변과 근거(도구·인자·결과 표)를 보여 주는 정적 페이지 (`api/static/chat.html`, 외부 라이브러리 없음). compose에서는 http://localhost:8001/chat
 - **공개 서버용 남용 방지:** 하루(KST) 질문 수 상한 `NLQ_DAILY_LIMIT`(0이면 없음, 넘으면 429, 남은 횟수는 `GET /query/quota`), 허용 제공자 `NLQ_ALLOWED_PROVIDERS`(요청 본문의 `provider`로 다른 제공자를 못 고르게, 403). 서버에서는 Gemini만·하루 8건 + Traefik의 IP당 rateLimit (아래 "Oracle Cloud K3s 배포")
 
-- 제공자: Claude·Gemini 외에 **OpenAI 호환 어댑터**(`openai_compat`, 로컬 Ollama·OpenAI·Groq 등 설정만으로). 로컬 `qwen2.5:7b-instruct`(RTX 3050)로 13개 평가 9/13(언어·설비 언급 검사 추가 후 8/13, 09-30 재평가 6/13으로 실행 간 편차 큼, 설비 누락·필드 나열 검사 추가 후 5/13)·평균 5~9초 — 도구 호출 형식 오류·설비 ID 추측·중국어 답변이 있어 서비스용으로는 부족, 반복 확인용 (상세는 docs/nlq.md)
+- 제공자: Claude·Gemini 외에 **OpenAI 호환 어댑터**(`openai_compat`, 로컬 Ollama·OpenAI·Groq 등 설정만으로). 로컬 모델 비교(10-01, RTX 3050, 같은 채점 규칙·1회 실행): **`qwen3:8b` 12/13**(실패 1개는 설비 ID 혼동, 생각 과정 때문에 평균 46초), `llama3.1:8b` 7/13(기간 계산 오류), `qwen2.5:7b-instruct` 6/13(중국어 답변·ID 추측), `granite3.3:8b` 1/13(도구 호출을 텍스트로 출력). 로컬 후보는 `qwen3:8b`뿐이지만 느려서 서비스 기본값은 Gemini 유지 (상세는 docs/nlq.md)
 
 **평가** (`evaluate/nlq_eval.py`, 질문 13개 — 변경 없는 11개는 09-28·29, 새 도구 질문 2개는 09-30 평가): 도구 선택, 설비·기간 인자, 도구 결과를 답변에 그대로 전했는지(근거), 없는 설비·조회 불가 항목·범위 밖 질문에 추측 없이 안내하는지를 채점합니다.
 
