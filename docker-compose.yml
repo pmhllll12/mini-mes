@@ -45,6 +45,21 @@ services:
       db:
         condition: service_healthy
 
+  # 가상 설비 데이터를 계속 보내는 시뮬레이터 - 필요할 때만: docker compose --profile sim up -d simulator
+  # 이상탐지 학습 데이터(정상만)를 만들 때는 먼저 멈춘다 (docker compose stop simulator)
+  # api 이미지(requests 포함)에 simulator/를 마운트해 실행 - 별도 이미지 없음
+  simulator:
+    image: mini-mes-api
+    profiles: ["sim"]
+    volumes:
+      - ./simulator:/sim:ro
+    environment:
+      PYTHONUNBUFFERED: "1"
+    command: ["python", "/sim/simulate.py", "--api-url", "http://api:8000", "--interval", "5", "--anomaly-rate", "0.05", "--drift-rate", "0.01"]
+    restart: unless-stopped
+    depends_on:
+      - api
+
   anomaly-worker:
     build:
       context: ./anomaly-worker

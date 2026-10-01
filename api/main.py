@@ -1,5 +1,6 @@
 import csv
 import io
+import logging
 import os
 import time
 from dataclasses import asdict
@@ -33,6 +34,7 @@ Base.metadata.create_all(bind=engine)
 from metrics import HTTP_REQUEST_COUNT, HTTP_REQUEST_LATENCY, NLQ_REQUESTS, NLQ_TOOL_CALLS  # noqa: E402
 
 app = FastAPI(title="mini-mes", version="0.1.0")
+log = logging.getLogger("uvicorn.error")
 
 
 @app.middleware("http")
@@ -340,7 +342,9 @@ def natural_language_query(payload: schemas.QueryIn, db: Session = Depends(get_d
         result = provider.run(user_message(payload.question), run_tool, NLQ_MAX_ROUNDS)
     except NLQProviderError as e:
         NLQ_REQUESTS.labels(provider.name, "error").inc()
-        raise HTTPException(status_code=502, detail=str(e))
+        log.warning("자연어 질의 제공자 오류 (%s): %s", provider.name, e)
+        # 제공자 한도 초과는 429 (잠시 뒤 다시 시도), 그 밖은 502
+        raise HTTPException(status_code=429 if e.status == 429 else 502, detail=str(e))
     NLQ_REQUESTS.labels(provider.name, result.stop).inc()
     return asdict(result)
 

@@ -1,0 +1,67 @@
+{{- if .Values.simulator.enabled }}
+{{- $fullname := include "mini-mes.fullname" . }}
+{{- $sim := .Values.simulator }}
+# 가상 설비 데이터 공급원 - 데모 서버에 데이터가 계속 들어오게 한다 (실제 설비 대신)
+# 별도 이미지 없이 api 이미지(python, requests 포함)에 simulate.py(files/ 복사본)를 ConfigMap으로 넣어 실행
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-simulator
+  labels:
+    {{- include "mini-mes.labels" . | nindent 4 }}
+data:
+  simulate.py: |-
+{{ .Files.Get "files/simulate.py" | indent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-simulator
+  labels:
+    {{- include "mini-mes.labels" . | nindent 4 }}
+    app.kubernetes.io/component: simulator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "mini-mes.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: simulator
+  template:
+    metadata:
+      labels:
+        {{- include "mini-mes.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: simulator
+      annotations:
+        checksum/script: {{ .Files.Get "files/simulate.py" | sha256sum | trunc 16 }}
+    spec:
+      containers:
+        - name: simulator
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # 클러스터 안에서 api Service로 직접 보낸다 (Ingress의 basic-auth를 거치지 않음)
+          command:
+            - python
+            - /sim/simulate.py
+            - --api-url={{ printf "http://%s-api:%v" $fullname .Values.api.service.port }}
+            - --interval={{ $sim.intervalSec }}
+            - --window-sec={{ $sim.windowSec }}
+            - --anomaly-rate={{ $sim.anomalyRate }}
+            - --drift-rate={{ $sim.driftRate }}
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: script
+              mountPath: /sim
+              readOnly: true
+      volumes:
+        - name: script
+          configMap:
+            name: {{ $fullname }}-simulator
+{{- end }}

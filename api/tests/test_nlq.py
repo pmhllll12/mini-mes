@@ -11,7 +11,7 @@ import pytest
 
 import main
 from database import SessionLocal
-from nlq_providers import KST, ClaudeProvider, GeminiProvider, NLQResult, user_message
+from nlq_providers import KST, ClaudeProvider, GeminiProvider, NLQProviderError, NLQResult, gemini_quota_message, user_message
 from nlq_quota import DailyQuota
 from nlq_tools import ToolError, execute_tool
 
@@ -427,3 +427,46 @@ def test_openai_compat_final_round_disables_tools_and_http_error_is_reported():
     with pytest.raises(NLQProviderError, match="HTTP 500"):
         OpenAICompatProvider("http://x/v1", "m", 5, session=FakeSession([{}], status=500)).run(
             "질문", lambda n, a: (True, {}), max_rounds=1)
+
+
+# ---------- 제공자 한도 초과 (429) ----------
+
+def _quota_error(quota_id, retry="37s"):
+    return {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "message": "quota", "details": [
+        {"@type": "type.googleapis.com/google.rpc.QuotaFailure", "violations": [{"quotaId": quota_id}]},
+        {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": retry},
+    ]}}
+
+
+@pytest.mark.parametrize("quota_id, expected", [
+    ("GenerateRequestsPerMinutePerProjectPerModel-FreeTier", "분당 요청 수). 37s 뒤에"),
+    ("GenerateRequestsPerDayPerProjectPerModel-FreeTier", "하루 요청 수"),
+    ("Unknown", "(요청 수). 37s 뒤에"),
+])
+def test_gemini_quota_message_tells_which_limit(quota_id, expected):
+    assert expected in gemini_quota_message(_quota_error(quota_id))
+    assert "잠시 뒤" in gemini_quota_message(None)
+
+
+def test_gemini_429_becomes_provider_error_with_status():
+    from google.genai import errors
+
+    class RateLimited:
+        models = SimpleNamespace(generate_content=lambda **kw: (_ for _ in ()).throw(
+            errors.APIError(429, _quota_error("GenerateRequestsPerMinutePerProjectPerModel-FreeTier"))))
+
+    with pytest.raises(NLQProviderError) as e:
+        GeminiProvider("k", "m", 5, client=RateLimited()).run("질문", lambda n, a: (True, {}), max_rounds=1)
+    assert e.value.status == 429 and "분당" in str(e.value)
+
+
+def test_query_returns_429_when_provider_rate_limited(client, monkeypatch):
+    class Limited:
+        name = "fake"
+
+        def run(self, user_text, run_tool, max_rounds):
+            raise NLQProviderError("Gemini 요청 한도 초과 (분당 요청 수). 37s 뒤에 다시 시도해 주세요", 429)
+
+    monkeypatch.setattr(main, "get_nlq_provider", lambda requested: Limited())
+    res = client.post("/query", json={"question": "설비 목록"})
+    assert res.status_code == 429 and "분당" in res.json()["detail"]

@@ -21,6 +21,10 @@ nlq:
   dailyLimit: 8
 # Grafana 관리자 비밀번호는 deploy.sh가 GRAFANA_ADMIN_PASSWORD로 넘긴다 (여기 두지 않음)
 
+# 데모 데이터 - 시뮬레이터가 실시간 속도(1분마다 설비 3대 × 1분 분량)로 계속 보낸다
+simulator:
+  enabled: true
+
 # 외부 공개 - https://mes.pmhllll12.cloud (DNS A 레코드 → VM 공인 IP, 보안 목록 80/443)
 # basic-auth Secret은 deploy.sh가 ADMIN_PASSWORD로 만든다
 ingress:

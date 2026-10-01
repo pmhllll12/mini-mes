@@ -104,9 +104,10 @@ PC ─ ssh :22 (my IP/32 only) ─→ OCI ap-osaka-1               │
 | Prometheus · Grafana | Deployment · Service · PVC(Prometheus) · ConfigMap | compose의 `monitoring/` 구성과 같음, 대시보드 프로비저닝 |
 | 일일 리포트 | CronJob | 매일 00:10 `Asia/Seoul`에 `POST /reports/daily` (전날 리포트 저장) |
 | 알림 | Grafana 알림 규칙 ConfigMap, 웹훅 Secret(optional) | 열화 경보·급변 이상 다발·수집 대상 다운·모델 없음 → Discord |
+| 데모 데이터 (`simulator.enabled`, 기본 꺼짐) | Deployment · ConfigMap(`files/simulate.py`) | api 이미지에 시뮬레이터 스크립트를 마운트해 실행 (별도 이미지 없음), 클러스터 안에서 api Service로 직접 전송 |
 | 외부 공개 (`ingress.enabled`, 기본 꺼짐) | Certificate · Traefik IngressRoute · Middleware(redirect, basic-auth, rateLimit) | 켜면 Grafana를 `/grafana` 하위 경로로 제공(`GF_SERVER_ROOT_URL`), cert-manager·ClusterIssuer는 `deploy.sh`가 설치 |
 
-- `files/schema.sql`, `files/grafana-dashboard.json`은 원본의 복사본입니다 (Helm은 차트 밖 파일을 못 읽음). CI의 chart 작업이 원본과 diff로 비교해 어긋나면 실패합니다.
+- `files/schema.sql`, `files/grafana-dashboard.json`, `files/grafana-alerting.yml`, `files/simulate.py`는 원본의 복사본입니다 (Helm은 차트 밖 파일을 못 읽음). CI의 chart 작업이 원본과 diff로 비교해 어긋나면 실패합니다.
 - 차트가 쓰는 외부 이미지(postgres, Prometheus, Grafana, curl)는 모두 arm64를 지원합니다.
 
 ## 검증 기록
@@ -120,6 +121,7 @@ PC ─ ssh :22 (my IP/32 only) ─→ OCI ap-osaka-1               │
 | 2026-09-29 | Oracle Cloud ap-osaka-1 | 예산·알림 규칙 (`plan -target`으로 예산 3개만, 재시도 스크립트 멈춘 뒤 적용) | 3개 생성 |
 | 2026-09-29 | Oracle Cloud ap-osaka-1 | `terraform apply` (plan 6개) | 네트워크 5개 생성, VM은 `Out of host capacity` → 재시도 중 |
 | 2026-10-01 | Oracle Cloud ap-osaka-1 | `retry-apply.sh` (1 OCPU / 6GB, 2분 간격), plan은 VM 1개 추가만 남음 | 계속 `Out of host capacity` → 재시도 중 |
+| 2026-10-01 | k3d (k3s v1.36.4), 차트 0.8.0 | 시뮬레이터 Deployment (5초 간격으로 단축) | 파드 Running·재시작 0회, api Service로 전송 201, 렌더링된 ConfigMap 스크립트가 원본과 동일 |
 | 2026-10-01 | k3d (k3s v1.36.4 / Traefik 3.7.8), 차트 0.8.0 | 외부 공개 구성을 `deploy.sh`로 배포 (자체 서명 ClusterIssuer, `mes.localtest.me`, LLM 호출 없음) | 인증서 Ready, HTTP→HTTPS 301, 공개 경로 200, 쓰기·`/metrics`는 인증 없이 401·인증 시 통과, `/query` 다른 제공자 403·연속 6회 중 3번째부터 429, 파드 5개 재시작 0회 (k3s v1.30 / Traefik 2.11에서도 같은 결과) |
 
 **아직 확인하지 못한 것**
@@ -139,6 +141,7 @@ PC ─ ssh :22 (my IP/32 only) ─→ OCI ap-osaka-1               │
 | Oracle Ubuntu 이미지에서 파드 네트워크 차단 (예상) | 기본 iptables의 FORWARD REJECT | cloud-init에서 REJECT 규칙 제거 (서버에서 확인 예정) |
 | VM 생성 실패 `500-InternalError, Out of host capacity` | 오사카 리전 무료 ARM 재고 부족 (오사카는 가용 영역 1개) | 5분 간격 재시도 스크립트, 사양을 1 OCPU / 6GB로 낮춰 시도 |
 | 웹훅 URL이 없으면 Grafana가 시작하지 못함 | Discord 수신처는 URL 필수 (`could not find webhook url property`) | 연결되지 않는 예약 도메인(`.invalid`)을 기본값으로, 실제 URL은 뒤에 붙는 Secret이 덮어씀 (`envFrom`은 뒤의 값 우선) |
+| 서버에 데이터 공급원이 없음 (배포 전 발견) | 로컬에서는 시뮬레이터를 직접 실행. 서버에 그대로 배포하면 방문자의 질문에 "데이터 없음"만 나옴 | 차트에 시뮬레이터 Deployment 추가, 서버 values에서 켬 |
 | Grafana 기본 비밀번호로 로그인되는 것처럼 보임 | 익명 Viewer 접근이 켜져 있어 비밀번호가 틀려도 조회 API가 200 | 관리자 API(`/api/admin/settings`)로 다시 확인 → 기본 비밀번호는 401, 설정한 비밀번호만 200 |
 
 ## 한계와 다음 단계

@@ -88,6 +88,13 @@ cd simulator
 python3 simulate.py --api-url http://localhost:8001 --interval 2 --anomaly-rate 0.2 --max-ticks 30
 ```
 
+계속 데이터를 흘려보내려면 compose의 `sim` 프로필을 씁니다 (api 이미지에 `simulator/`를 마운트해 실행, 이상 5%·열화 1%). 기본 `docker compose up`에는 포함되지 않으며, 이상탐지 학습용 정상 데이터를 만들 때는 먼저 멈춥니다.
+
+```bash
+docker compose --profile sim up -d simulator   # 시작 (Docker를 다시 켜도 자동 재시작)
+docker compose stop simulator                  # 학습 데이터 만들기 전에 정지
+```
+
 ### 조회 예시
 
 ```bash
@@ -227,7 +234,7 @@ curl -X POST http://localhost:8001/query -H 'Content-Type: application/json' \
 - **시간대 혼동 → 수정 (09-30):** 열화 경보 이력 질문에 도구가 경보 11건을 돌려줬는데 "없다"고 답함(당시 채점은 통과). 도구 결과 시각이 UTC, 조회 기간이 KST였던 것이 원인으로 추정 → 도구 결과 시각을 KST로 바꾸고 채점에 경보 설비 근거 검사를 추가한 뒤 재실행해 11건을 모두 전함 (1회 확인). 없는 설비는 도구 실패 후 "등록되지 않은 설비"로 안내, 범위 밖 예측 질문은 도구 없이 거절.
 - **건수·수량 혼동 → 수정:** "오늘 EQ-002 최다 불량"에 불량 수량(125개)을 "125건"이라고 답하던 오류가 09-28·09-29 두 번 재현됨. 도구 결과 필드 이름을 `품질이벤트_건수`·`불량수량_개`로 바꾼 뒤 새 데이터로 2회 실행해 두 번 모두 "127개"로 맞게 답함 (DB: 121건·127개). 소수 실행이라 개선의 근거 수준. 채점에 단위(`units`)·언어(`language`, 한국어 여부)·설비 언급(`ids`, 틀리거나 지어낸 설비 ID, 09-30부터 비교 질문의 설비 누락 포함)·필드 나열(`no_dump`, 답 대신 결과 필드명 나열) 검사를 추가해 수정 전 답변은 실패, 수정 후 답변은 통과하는 것을 실제 답변 문장으로 단위 테스트
 - 답변 수치를 조회 API로 직접 대조: "최근 24시간 이상 최다 설비 EQ-003, 626건"은 일치. "오늘 EQ-002 최다 불량 dimension_out 217건, scratch도 217건으로 동일"은 **217이 불량 수량(개)인데 건수처럼 표현**했고 실제 이벤트 건수는 213 vs 204라 동률이 아님 — 자동 채점(정답 유형 포함 여부)은 통과했지만 수치 표현은 부정확했습니다.
-- 실제 API 호출로 발견해 고친 점: Gemini에 함수 결과를 `role="tool"`로 보내면 400(SDK README 예제와 다름) → `role="user"`로 전송, 일시 과부하(503) 대비 재시도.
+- 실제 API 호출로 발견해 고친 점: Gemini에 함수 결과를 `role="tool"`로 보내면 400(SDK README 예제와 다름) → `role="user"`로 전송, 일시 과부하(503) 대비 재시도. 제공자 한도 초과(429)는 `/query`도 429로 돌려주고, Gemini 응답에서 분당/하루 한도와 재시도 대기 시간을 꺼내 안내합니다 (이전에는 502 "HTTP 429"만 표시).
 
 ## 아키텍처
 
@@ -426,6 +433,18 @@ SERVER_IP=$(terraform output -raw public_ip) GRAFANA_ADMIN_PASSWORD=... MES_ADMI
 - `POST /query`: `provider=claude`는 403, 연속 요청 6회 중 3번째부터 429(Traefik rateLimit)
 - 파드 5개 Running·재시작 0회
 - 서버에서 확인할 것: Let's Encrypt 실제 발급, rateLimit이 방문자 IP 단위로 동작하는지(Traefik Service `externalTrafficPolicy: Local`)
+
+**데모 데이터:** 서버에는 실제 설비가 없어 차트의 시뮬레이터 Deployment(`simulator.enabled`, 서버 values에서 켬)가 1분마다 설비 3대의 1분 분량 생산실적을 보냅니다 (급변 이상 3%, 열화 시작 0.5%). 클러스터 안에서 api Service로 직접 보내 Ingress 잠금을 거치지 않습니다. 첫 배포 뒤 이상탐지 모델은 정상 데이터로만 학습합니다:
+
+```bash
+kubectl scale deploy/mini-mes-simulator --replicas=0        # 이상이 섞인 데이터가 학습 구간에 들어오지 않게
+kubectl port-forward svc/mini-mes-api 18001:8001 &
+TRAIN_SINCE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+(cd simulator && python3 simulate.py --api-url http://localhost:18001 --interval 0 --anomaly-rate 0 --max-ticks 300)
+kubectl exec deploy/mini-mes-anomaly-worker -- python train.py --since "$TRAIN_SINCE"
+kubectl exec deploy/mini-mes-anomaly-worker -- python train.py --since "$TRAIN_SINCE" --rolling-window 5 --model-dir /models/drift
+kubectl scale deploy/mini-mes-simulator --replicas=1
+```
 
 **현재 상태 (2026-10-01):** 네트워크 5개와 예산 알림은 생성됐고, 남은 리소스는 VM 1개입니다. VM은 오사카 A1 재고 부족(`500-InternalError, Out of host capacity`)으로 계속 실패해 `retry-apply.sh`(1 OCPU / 6GB)로 재시도 중입니다. 유료 클라우드는 이 구성(최소 메모리 4GB)을 상시 운영하면 월 과금이 생겨, 상시 무료 A1을 기다리기로 했습니다. 서버 배포 결과는 VM 생성 후 기록합니다.
 

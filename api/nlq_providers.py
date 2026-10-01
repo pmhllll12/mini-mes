@@ -39,7 +39,32 @@ class NLQResult:
 
 
 class NLQProviderError(Exception):
-    """LLM 호출 실패 (네트워크, 인증, 요청 형식 등). 메시지에 키를 넣지 않는다."""
+    """LLM 호출 실패 (네트워크, 인증, 요청 형식 등). 메시지에 키를 넣지 않는다.
+    status: 제공자가 돌려준 HTTP 상태 (429면 /query도 429로 - 사용자가 잠시 뒤 다시 시도할 수 있는 오류)"""
+
+    def __init__(self, message: str, status: Optional[int] = None):
+        super().__init__(message)
+        self.status = status
+
+
+def gemini_quota_message(details: Any) -> str:
+    """Gemini 429 응답에서 한도 종류(분당/하루)와 재시도 대기 시간을 꺼내 안내 문구로.
+    응답 형식: {"error": {"details": [{"violations": [{"quotaId": "...PerDay..."}]}, {"retryDelay": "37s"}]}}"""
+    err = details.get("error", details) if isinstance(details, dict) else {}
+    kinds, retry = [], None
+    for d in err.get("details") or []:
+        if not isinstance(d, dict):
+            continue
+        for v in d.get("violations") or []:
+            quota_id = str(v.get("quotaId", ""))
+            kind = "하루" if "PerDay" in quota_id else "분당" if "PerMinute" in quota_id else None
+            if kind and kind not in kinds:
+                kinds.append(kind)
+        retry = d.get("retryDelay") or retry
+    if "하루" in kinds:
+        return "Gemini 무료 한도 초과 (하루 요청 수). 태평양 시간 자정(KST 16~17시)에 초기화됩니다"
+    wait = f" {retry} 뒤에" if retry else " 잠시 뒤"
+    return f"Gemini 요청 한도 초과 ({'분당 요청 수' if '분당' in kinds else '요청 수'}).{wait} 다시 시도해 주세요"
 
 
 def user_message(question: str, now: Optional[datetime] = None) -> str:
@@ -86,7 +111,7 @@ class ClaudeProvider:
         try:
             return self.client.beta.messages.create(**kwargs)
         except anthropic.APIStatusError as e:
-            raise NLQProviderError(f"Claude API 오류 (HTTP {e.status_code})") from e
+            raise NLQProviderError(f"Claude API 오류 (HTTP {e.status_code})", e.status_code) from e
         except anthropic.APIConnectionError as e:
             raise NLQProviderError("Claude API 연결 실패") from e
 
@@ -161,7 +186,9 @@ class GeminiProvider:
                 model=self.model, contents=contents, config=self.final_config if final_round else self.config,
             )
         except errors.APIError as e:
-            raise NLQProviderError(f"Gemini API 오류 (HTTP {e.code})") from e
+            if e.code == 429:
+                raise NLQProviderError(gemini_quota_message(e.details), 429) from e
+            raise NLQProviderError(f"Gemini API 오류 (HTTP {e.code})", e.code) from e
         except OSError as e:
             raise NLQProviderError("Gemini API 연결 실패") from e
 
@@ -235,7 +262,7 @@ class OpenAICompatProvider:
         except requests.RequestException as e:
             raise NLQProviderError("OpenAI 호환 API 연결 실패") from e
         if resp.status_code >= 400:
-            raise NLQProviderError(f"OpenAI 호환 API 오류 (HTTP {resp.status_code})")
+            raise NLQProviderError(f"OpenAI 호환 API 오류 (HTTP {resp.status_code})", resp.status_code)
         return resp.json()
 
     def run(self, user_text: str, run_tool: RunTool, max_rounds: int) -> NLQResult:

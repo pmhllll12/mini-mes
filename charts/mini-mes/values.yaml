@@ -58,6 +58,15 @@ anomalyWorker:
   metricsPort: 9100
   modelStorage: 100Mi
 
+# 가상 설비 데이터 공급원 (데모 서버용, 기본 꺼짐). files/simulate.py는 simulator/simulate.py 복사본 (CI에서 동기화 검사)
+# 이상탐지 학습 데이터(정상만)를 만들 때는 먼저 멈춘다: kubectl scale deploy/<release>-simulator --replicas=0
+simulator:
+  enabled: false
+  intervalSec: 60     # 실제 전송 주기
+  windowSec: 60       # 1회 전송이 나타내는 생산 구간 - intervalSec과 같으면 실시간과 같은 속도
+  anomalyRate: 0.03   # 급변 이상 확률 (구간마다)
+  driftRate: 0.005    # 설비별 점진적 열화 시작 확률 (구간마다, 열화 1회 20구간)
+
 # 예약 리포트 - 매일 전날(KST) 설비별 OEE·불량·이상·열화 경보 요약을 daily_report에 저장 (GET /reports/daily로 조회)
 report:
   enabled: true
