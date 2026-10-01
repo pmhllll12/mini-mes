@@ -13,6 +13,19 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 - 자연어 질의 설계와 평가: [자연어 질의]({{ '/nlq/' | relative_url }})
 - 배포 구성·보안 설계·CI/CD·검증 기록: [인프라]({{ '/infra/' | relative_url }})
 
+## 라이브 데모
+
+> **준비 중:** 서버(Oracle Cloud 무료 ARM VM)가 생성되면 아래 주소로 열립니다. 지금은 접속되지 않습니다.
+
+| | 주소 | 내용 |
+|---|---|---|
+| 자연어 질의 채팅 | [mes.pmhllll12.cloud/chat](https://mes.pmhllll12.cloud/chat) | 설비·OEE·불량·이상탐지를 자연어로 질문. 답변마다 근거(호출한 도구·인자·결과 표) 표시 |
+| Grafana 대시보드 | [mes.pmhllll12.cloud/grafana](https://mes.pmhllll12.cloud/grafana/) | OEE·불량·이상 점수·열화 경보·API 지표 (로그인 없이 조회) |
+| API 문서 | [mes.pmhllll12.cloud/docs](https://mes.pmhllll12.cloud/docs) | 조회 API는 바로 실행 가능, 데이터 등록은 잠금 |
+
+- 데이터는 서버 안의 시뮬레이터가 1분마다 보내는 가상 설비 데이터입니다.
+- 채팅은 Gemini 무료 등급을 쓰므로 하루 8건, IP당 분당 약 3회로 제한됩니다. 한도를 넘으면 초기화 시각을 안내합니다.
+
 > **현재 상태:** 7주차 진행 중 — 핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링·Discord 알림, GitHub Actions CI, Helm 차트 + k3d 로컬 검증, 이상탐지 워커 + 가상 데이터 기준 성능 평가, 자연어 질의 API(Gemini 13/13 통과, Claude 미평가), 예약 리포트.
 > **배포 상태:** Helm 차트는 k3d에서 검증을 마쳤고, 서버와 같은 K3s 버전·같은 values·GHCR 이미지로 서버 배포 경로까지 로컬에서 확인했습니다. Oracle Cloud 상시 무료 ARM VM(오사카)은 Terraform으로 네트워크까지 만들었고, VM은 무료 ARM 재고 부족으로 생성을 재시도하는 중입니다 (2026-10-01 기준).
 
