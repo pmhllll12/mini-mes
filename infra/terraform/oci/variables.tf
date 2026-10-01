@@ -37,7 +37,7 @@ variable "allowed_ssh_cidr" {
   }
 }
 
-# Always Free: A1.Flex 합계 4 OCPU / 24GB, 블록 볼륨 합계 200GB
+# Always Free: A1.Flex 합계 2 OCPU / 12GB (2026-06-15에 4 OCPU / 24GB에서 줄어듦), 블록 볼륨 합계 200GB
 variable "ocpus" {
   type    = number
   default = 2
