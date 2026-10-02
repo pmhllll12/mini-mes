@@ -4,7 +4,7 @@
 Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단계적으로 고도화하며 만들고 있습니다.
 
 > **현재 상태:** 7주차 진행 중 (핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링·Discord 알림, GitHub Actions CI, Helm 차트 + k3d 로컬 검증, 이상탐지 워커 + 가상 데이터 기준 성능 평가, 자연어 질의 API — Gemini 13/13 통과, Claude 미평가, 예약 리포트).
-> **배포 상태:** Helm 차트는 k3d에서 검증을 마쳤고, 서버와 같은 K3s 버전·같은 values·GHCR 이미지로 서버 배포 경로까지 로컬에서 확인했습니다. K3s 서버는 Oracle Cloud 상시 무료 ARM VM(오사카)으로 정해 Terraform으로 네트워크까지 만들었지만, VM은 무료 ARM 재고 부족("Out of host capacity")으로 생성을 재시도하는 중입니다 (2026-10-01 기준). 그동안 같은 차트·values·GHCR 이미지를 개인 PC k3d에 올려 Cloudflare Tunnel로 **https://mes.pmhllll12.cloud** 에 임시 공개하고 있습니다 (2026-10-02~, PC가 꺼져 있으면 접속 불가).
+> **배포 상태:** **https://mes.pmhllll12.cloud** 에서 운영 중입니다 (2026-10-02~). Oracle Cloud 상시 무료 ARM VM(오사카, Terraform으로 생성) 위 K3s에 Helm 차트로 배포했고, 포트를 열지 않고 Cloudflare Tunnel로 공개합니다. VM 재고를 기다리는 동안에는 같은 구성을 개인 PC k3d에서 임시로 공개했습니다.
 
 프로젝트 소개 페이지(GitHub Pages, Jekyll): https://pmhllll12.github.io/mini-mes/ — 소스는 `docs/` (로컬 미리보기: `cd docs && jekyll serve --port 4002` → http://localhost:4002/mini-mes/)
 
@@ -397,11 +397,11 @@ K3s 서버는 Oracle Cloud 상시 무료 ARM VM(A1.Flex, 오사카 `ap-osaka-1`)
 구성도·보안 설계·CI/CD·검증 기록은 **[인프라 상세 문서](docs/infra.md)**([GitHub Pages](https://pmhllll12.github.io/mini-mes/infra/))에 정리했습니다.
 
 - **외부 노출 최소화:** 보안 목록 인바운드는 SSH(22)를 내 IP(`allowed_ssh_cidr`, `0.0.0.0/0`은 validation으로 거부)에만 허용합니다. K3s API·Prometheus는 열지 않고 SSH 터널로 접속합니다.
-- **외부 공개 (준비 완료, VM 생성 후 적용):** `https://mes.pmhllll12.cloud` — K3s 기본 Traefik(IngressRoute) + cert-manager(Let's Encrypt HTTP-01). 보안 목록 80/443과 DNS 레코드는 VM 생성 후 바꿉니다. 지금은 임시로 개인 PC k3d(`infra/local-demo/values-demo.yaml`) 앞에 Cloudflare Tunnel(cloudflared 컨테이너, k3d 네트워크의 serverlb:443으로 전달)을 두어 같은 주소로 공개 중입니다 — 인바운드 포트를 열지 않고, rateLimit은 `Cf-Connecting-Ip` 기준. 터널 구성은 `infra/local-demo/tunnel.sh`.
+- **외부 공개 (운영 중):** `https://mes.pmhllll12.cloud` — 클러스터 안의 cloudflared(`infra/k3s/tunnel.sh`)가 Cloudflare Tunnel로 Traefik(IngressRoute)에 연결합니다. 보안 목록은 SSH만 열어 두고 80/443을 열지 않습니다. 공개 TLS는 Cloudflare, 터널 → Traefik 구간은 cert-manager 자체 서명이고, rateLimit은 Cloudflare의 방문자 IP 헤더(`Cf-Connecting-Ip`) 기준입니다. (VM 생성 전에는 같은 터널을 개인 PC k3d에서 임시 운영: `infra/local-demo/`)
   - 공개: 채팅 화면·API 조회(GET, `/docs` 포함), `/grafana`(익명 Viewer)
   - `POST /query`: 공개하되 IP당 rateLimit(분당 약 3회) + 하루 8건 상한 + Gemini만 허용 — 무료 한도(하루 20회)를 방문자가 다 쓰지 않게
   - 잠금(basic-auth): 생산실적·품질 이벤트 등록, 리포트 재생성 등 그 밖의 요청과 `/metrics`
-- **Oracle Ubuntu 이미지의 iptables:** 기본 규칙이 22 외 INPUT과 모든 FORWARD를 REJECT해 파드 네트워크가 막히므로, cloud-init에서 REJECT 규칙만 지웁니다 (외부 방화벽은 보안 목록이 담당).
+- **Oracle Ubuntu 이미지의 iptables:** 기본 규칙이 22 외 INPUT과 모든 FORWARD를 REJECT해 파드 네트워크가 막히므로, cloud-init에서 REJECT 규칙만 지웁니다 (외부 방화벽은 보안 목록이 담당). 이 이미지는 규칙을 다시 불러올 때 기존 규칙을 비우지 않아(`IPTABLES_RESTORE_NOFLUSH=yes`) 파일 수정 + reload만으로는 남아 있던 것을 실제 서버에서 발견해, 실행 중 규칙도 `iptables -D`로 지우게 고쳤습니다.
 - **이미지:** VM이 ARM이라 CI가 main 푸시 때 `ghcr.io/pmhllll12/mini-mes-{api,anomaly-worker}`를 amd64/arm64로 빌드해 올립니다 (`sha-<커밋>`, `latest` 태그). 서버용 values는 `infra/k3s/values-oci.yaml`.
 - **비용 안전장치:** 계정은 A1 재고를 잡기 위해 유료(Pay As You Go)로 전환했고(2026-10-02), 상시 무료 한도를 넘는 사양(2 OCPU / 12GB, 부트 볼륨 200GB 초과)은 변수 validation이 plan 단계에서 거부합니다. `budget.tf`가 월 예산과 이메일 알림(실제 지출이 예산의 1% 초과, 월말 예상 초과)을 만듭니다. 상시 무료만 쓰므로 지출은 0이어야 하고, 과금이 생기면 바로 알기 위함입니다 (알림일 뿐 지출을 막지는 않음). 수신 이메일은 `terraform.tfvars`의 `budget_alert_email`.
 - **자격 증명:** OCI API 키는 `~/.oci/config`에서 읽고, `terraform.tfvars`·state·kubeconfig는 gitignore.
@@ -447,12 +447,12 @@ kubectl exec deploy/mini-mes-anomaly-worker -- python train.py --since "$TRAIN_S
 kubectl scale deploy/mini-mes-simulator --replicas=1
 ```
 
-**현재 상태 (2026-10-01):** 네트워크 5개와 예산 알림은 생성됐고, 남은 리소스는 VM 1개입니다. VM은 오사카 A1 재고 부족(`500-InternalError, Out of host capacity`)으로 계속 실패해 `retry-apply.sh`(1 OCPU / 6GB)로 재시도 중입니다. 유료 클라우드는 이 구성(최소 메모리 4GB)을 상시 운영하면 월 과금이 생겨, 상시 무료 A1을 기다리기로 했습니다. 서버 배포 결과는 VM 생성 후 기록합니다.
+**현재 상태 (2026-10-02):** 운영 중. VM은 오사카 A1 재고 부족(`500-InternalError, Out of host capacity`)으로 9/29부터 수백 번 실패하다가, 계정을 유료(Pay As You Go)로 전환한 직후 생성됐습니다 (1 OCPU / 6GB, 상시 무료 한도 안이라 비용 0 — 한도 밖 사양은 변수 validation이 거부). `deploy.sh latest` → 정상 데이터로 모델 학습 → `tunnel.sh` 순서로 배포했고, 파드 7개 Running·재시작 0회, 외부에서 공개 경로 200·잠금 경로 401을 확인했습니다. arm64 이미지의 실제 실행도 이 서버에서 처음 확인했습니다. 검증 기록은 [docs/infra.md](docs/infra.md).
 
 ## 기술 스택
 
 - 현재: Python, FastAPI, SQLAlchemy, PostgreSQL 16, Docker Compose, Prometheus, Grafana, GitHub Actions(GHCR 멀티아키텍처 이미지), Helm/k3d(로컬 검증), scikit-learn(Isolation Forest), Claude·Gemini API(function calling), Terraform(OCI)
-- 예정: Oracle Cloud K3s 서버 배포 (VM 생성 대기)
+- 운영: Oracle Cloud(A1 ARM) K3s + Cloudflare Tunnel
 
 ## 로드맵
 
@@ -464,7 +464,7 @@ kubectl scale deploy/mini-mes-simulator --replicas=1
 | 4주 | Helm 차트 작성 + k3d 로컬 검증 (Secret/PVC/probe, 서버 배포 대상은 미정). 5주차 이후 anomaly-worker(Deployment·모델 PVC·메트릭 Service), Prometheus·Grafana도 차트에 추가 | ✅ |
 | 5주 | 이상탐지(예지보전) 워커: 설비별 Isolation Forest + robust z-score(정상 데이터만 학습), `/anomalies` API, 급변·열화 경보 분리, 워커 메트릭·Grafana 패널, 시뮬레이터 라벨 기반 성능 평가(가상 데이터 기준 급변 F1 v1 0.525 → v2 0.959), 워커 단위 테스트·CI | ✅ |
 | 6주 | 자연어 질의 API(`POST /query`, Claude·Gemini function calling, 읽기 전용 도구 4개(09-29에 열화 경보·일일 리포트 추가해 6개), 근거 반환), 평가 스크립트 — Gemini 13/13 통과(건수·수량 혼동은 도구 필드 이름 수정 후 2회 확인, 시간대 혼동은 KST 변환 후 1회 확인), Claude 미평가 | ✅ |
-| 7주 | Terraform(Oracle Cloud: VCN·보안 목록·A1 VM + cloud-init K3s), CI에서 amd64/arm64 이미지를 GHCR에 푸시·Terraform 검사, 문서화·데모 영상 — VM은 재고 부족으로 생성 대기 | 진행 중 |
+| 7주 | Terraform(Oracle Cloud: VCN·보안 목록·A1 VM + cloud-init K3s), CI에서 amd64/arm64 이미지를 GHCR에 푸시·Terraform 검사, 문서화·데모 영상 — 10-02 VM 생성·서버 배포(Cloudflare Tunnel 공개) 완료, 데모 영상 남음 | 진행 중 |
 
 ## 알려진 한계
 
@@ -477,7 +477,7 @@ kubectl scale deploy/mini-mes-simulator --replicas=1
   - 열화 경보는 열화가 끝난 뒤에도 평균 1.5구간 더 켜져 있습니다. 경보 시작/해제 이력은 `drift_alarm`에 남지만 판정 건별 열화 점수는 메트릭으로만 남습니다.
   - `anomaly_result`에 생산실적 ID가 없어 `(equipment_id, ts)`로 같은 로그인지 판단합니다.
 - 자연어 질의: 평가는 질문 13개(Gemini, 여러 날에 나눠 실행)뿐이고 Claude는 미평가입니다. 불량 수량(개)을 건수로 말하던 오류는 도구 필드 이름 수정 후 2회 확인 수준입니다 (단위 검사는 불량 집계 질문에만 적용). Helm 차트에서는 키를 담은 Secret(`<release>-llm`)을 직접 만들어야 `/query`가 동작합니다.
-- Helm 차트(워커·Prometheus·Grafana 포함)는 k3d 로컬 검증까지만 했습니다 (k3d 기본 local-path 저장소라 PVC도 노드 한 대의 디스크에 있음). 실제 서버(Oracle Cloud) 배포는 VM 생성 대기 중이며, arm64 이미지가 실제 ARM 노드에서 실행되는지도 아직 확인하지 못했습니다.
+- 서버는 노드 한 대(1 OCPU / 6GB)라 VM이 멈추면 서비스도 멈추고, PVC는 K3s 기본 local-path(노드 디스크)입니다. 백업과 자동 배포(pull 기반)는 아직 없습니다.
 
 ## 개발 기간
 

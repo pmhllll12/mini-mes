@@ -15,7 +15,7 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 
 ## 라이브 데모
 
-> **임시 운영 중 (2026-10-02~):** Oracle Cloud 무료 ARM VM이 재고 부족으로 아직 생성되지 않아, 서버와 같은 Helm 차트·values·GHCR 이미지를 개인 PC의 k3d 클러스터에 올리고 Cloudflare Tunnel로 공개하고 있습니다. PC가 꺼져 있으면 접속되지 않을 수 있습니다. VM이 생기면 같은 주소로 옮깁니다.
+> **운영 중 (2026-10-02~):** Oracle Cloud 상시 무료 ARM VM(오사카) 위 K3s에서 돌아가며, 서버 포트를 열지 않고 Cloudflare Tunnel로 공개합니다.
 
 | | 주소 | 내용 |
 |---|---|---|

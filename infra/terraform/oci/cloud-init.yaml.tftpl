@@ -5,7 +5,9 @@ runcmd:
   # Oracle Ubuntu 이미지의 기본 iptables는 22 외 INPUT과 모든 FORWARD를 REJECT → 파드 네트워크가 막힌다.
   # 외부 방화벽은 VCN 보안 목록(SSH만 허용)이 맡으므로 REJECT 규칙만 지운다
   - sed -i '/--reject-with icmp-host-prohibited/d' /etc/iptables/rules.v4
-  - netfilter-persistent reload
+  # 이 이미지는 IPTABLES_RESTORE_NOFLUSH=yes라 reload만으로는 이미 적용된 REJECT가 남는다 → 실행 중인 규칙도 직접 지운다
+  - iptables -D INPUT -j REJECT --reject-with icmp-host-prohibited || true
+  - iptables -D FORWARD -j REJECT --reject-with icmp-host-prohibited || true
   # K3s API는 127.0.0.1:6443 그대로 두고 SSH 터널로 접속한다 (공인 IP를 인증서에 넣지 않음)
   - curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION='${k3s_version}' sh -s - server --write-kubeconfig-mode 600
   - install -d -o ubuntu -g ubuntu -m 700 /home/ubuntu/.kube

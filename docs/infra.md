@@ -17,7 +17,7 @@ permalink: /infra/
 | 이미지 | 로컬 빌드 | 로컬 빌드를 `k3d image import` | GHCR (CI가 amd64/arm64로 빌드) |
 | 설정 | `docker-compose.yml` | 차트 기본값 | 차트 + `infra/k3s/values-oci.yaml` |
 | 예약 리포트 | 직접 `POST /reports/daily` | CronJob | CronJob |
-| 상태 | 사용 중 | 검증 완료 · 임시 공개 데모 운영 (아래) | 네트워크 생성, VM 대기 |
+| 상태 | 사용 중 | 검증 완료 | **운영 중** (2026-10-02~, 1 OCPU / 6GB) |
 
 ## 서버 구성
 
@@ -28,9 +28,10 @@ PC ─ ssh :22 (my IP/32 only) ─→ OCI ap-osaka-1               │
  │                               └ VCN 10.0.0.0/16           │
  │                                  └ VM A1.Flex (ARM) ←─────┘
  │                                     └ K3s
- │  visitor ─ https :443 (:80 → 301) ─→ ├ Traefik ─ cert-manager (Let's Encrypt)
- │    mes.pmhllll12.cloud               │   ├ /chat, GET, POST /query → api
- │                                      │   └ /grafana → Grafana
+ │  visitor ─ https ─→ Cloudflare ⇐ tunnel ─ ├ cloudflared (outbound only)
+ │    mes.pmhllll12.cloud   (TLS)         │   └→ Traefik ─ cert-manager (self-signed)
+ │                                      │       ├ /chat, GET, POST /query → api
+ │                                      │       └ /grafana → Grafana
  │                                      ├ api, db (PVC)
  └─ ssh -L 16443:127.0.0.1:6443 ──────→ ├ anomaly-worker (PVC)
     (kubectl, helm)                     ├ Prometheus (PVC), Grafana
@@ -38,10 +39,10 @@ PC ─ ssh :22 (my IP/32 only) ─→ OCI ap-osaka-1               │
 ```
 
 - 관리 경로는 내 IP의 SSH 하나뿐입니다. `kubectl`·`helm`은 SSH 터널로 K3s API에 붙습니다.
-- 방문자 경로(80/443)는 외부 공개 구성(아래 "보안 설계")으로 준비했고, VM 생성 후 보안 목록·DNS를 추가해 엽니다.
+- 방문자 경로도 포트를 열지 않습니다. 클러스터 안의 cloudflared(`infra/k3s/tunnel.sh`)가 Cloudflare로 나가는 연결만 만들고 Traefik:443으로 전달합니다. 보안 목록 인바운드는 SSH 하나뿐입니다.
 - 서버는 이미지를 GHCR에서 받아 옵니다 (빌드는 CI만).
 
-### 임시 공개 데모 (개인 PC k3d + Cloudflare Tunnel)
+### 임시 공개 데모 (개인 PC k3d + Cloudflare Tunnel, 2026-10-02 서버로 이전)
 
 VM이 재고 부족으로 생성되지 않는 동안, 같은 차트·`values-oci.yaml`·GHCR 이미지를 개인 PC의 k3d 클러스터에 올리고 Cloudflare Tunnel로 같은 주소(`mes.pmhllll12.cloud`)에 공개합니다 (2026-10-02~).
 
@@ -57,7 +58,7 @@ PC (WSL2 · Docker)                                                        ↓
 - **rateLimit:** 터널을 거치면 출발지가 모두 cloudflared라, Cloudflare가 넣는 방문자 IP 헤더(`Cf-Connecting-Ip`)로 제한합니다. origin은 터널로만 닿고 Cloudflare가 이 헤더를 덮어쓰므로 위조할 수 없습니다.
 - **상시 실행:** cloudflared는 WSL 서비스 대신 Docker 컨테이너(`restart unless-stopped`)로 돌립니다. WSL은 터미널이 닫히면 종료될 수 있기 때문입니다. k3d 노드 컨테이너도 Docker와 함께 다시 켜집니다.
 - **재현:** `infra/local-demo/tunnel.sh` — 터널 생성(있으면 재사용), 설정 파일 생성, DNS CNAME, 컨테이너 실행까지. 터널 인증 정보와 설정 파일은 레포 밖(`~/.cloudflared/`)에 둡니다.
-- **한계:** PC가 꺼지거나 절전에 들어가면 데모도 멈춥니다. VM이 생기면 DNS를 VM으로 바꾸고 이 구성은 내립니다.
+- **이전:** 같은 날 VM이 생성되어, 같은 터널을 서버 클러스터의 cloudflared Deployment(`infra/k3s/tunnel.sh`)로 옮기고 PC 쪽 컨테이너는 멈췄습니다. 주소·DNS·TLS·rateLimit 방식은 그대로이고, 이 경험으로 서버도 80/443을 열지 않는 터널 방식으로 정했습니다.
 
 ### Terraform (`infra/terraform/oci/`)
 
@@ -84,7 +85,7 @@ PC (WSL2 · Docker)                                                        ↓
 | 방문자 공개 범위 | Traefik IngressRoute 규칙: GET·HEAD(`/metrics` 제외)와 `/grafana`는 공개, `POST /query`는 rateLimit, 그 밖은 basic-auth | API에 인증이 없어 쓰기 요청(가짜 생산실적 등록 등)을 그대로 열면 데이터가 오염됨. 조회·채팅은 방문자가 직접 써 볼 수 있게 |
 | `POST /query` 남용 | IP당 rateLimit(분당 약 3회, Traefik) + 하루 8건 상한(api, `NLQ_DAILY_LIMIT`, 넘으면 429) + 제공자 Gemini 고정(`NLQ_ALLOWED_PROVIDERS`) | Gemini 무료 등급은 하루 20회이고 질문 1건에 보통 2회 호출. 요청 본문의 `provider`로 다른(유료) 제공자를 고르지 못하게 |
 | 클라이언트 IP | Traefik Service `externalTrafficPolicy: Local` (`infra/k3s/traefik-config.yaml`) | ServiceLB를 거치며 출발지 IP가 바뀌면 rateLimit이 모든 방문자를 한 IP로 묶음 |
-| TLS | cert-manager + Let's Encrypt(HTTP-01), HTTP는 HTTPS로 301 | 인증서 발급·갱신 자동화. ACME 이메일은 두지 않음 (만료 알림 메일 종료, 자동 갱신) |
+| TLS | 공개 인증서는 Cloudflare 엣지, 터널 → Traefik 구간은 cert-manager 자체 서명 (cloudflared는 SNI를 실제 호스트로) | 80을 열지 않으면 Let's Encrypt HTTP-01을 쓸 수 없음. 80/443 직접 공개로 바꿀 때를 위해 `letsencrypt-prod` ClusterIssuer는 남겨 둠 |
 | basic-auth 비밀번호 | `deploy.sh`가 `MES_ADMIN_PASSWORD`로 htpasswd(apr1) Secret 생성, 비밀번호는 stdin으로 전달 | values·저장소·프로세스 목록에 비밀번호가 남지 않게 |
 | Prometheus | 공개하지 않고 SSH 터널 / `kubectl port-forward` | 인증이 없고 방문자에게 필요한 화면은 Grafana로 충분 |
 | OCI 자격 증명 | API 키는 `~/.oci/config`와 개인키 파일에만 | 코드·tfvars에 키를 두지 않음 |
@@ -142,13 +143,13 @@ PC (WSL2 · Docker)                                                        ↓
 | 2026-10-01 | k3d (k3s v1.36.4), 차트 0.8.0 | 시뮬레이터 Deployment (5초 간격으로 단축) | 파드 Running·재시작 0회, api Service로 전송 201, 렌더링된 ConfigMap 스크립트가 원본과 동일 |
 | 2026-10-01 | k3d (k3s v1.36.4 / Traefik 3.7.8), 차트 0.8.0 | 외부 공개 구성을 `deploy.sh`로 배포 (자체 서명 ClusterIssuer, `mes.localtest.me`, LLM 호출 없음) | 인증서 Ready, HTTP→HTTPS 301, 공개 경로 200, 쓰기·`/metrics`는 인증 없이 401·인증 시 통과, `/query` 다른 제공자 403·연속 6회 중 3번째부터 429, 파드 5개 재시작 0회 (k3s v1.30 / Traefik 2.11에서도 같은 결과) |
 | 2026-10-02 | 개인 PC k3d `mini-mes-demo` (k3s v1.36.4) + Cloudflare Tunnel | GHCR `latest`를 `values-oci.yaml` + `values-demo.yaml`로 배포, `tunnel.sh`로 터널·DNS·cloudflared 컨테이너 | 엣지 연결 4개(icn), 외부에서 `/chat`·`/grafana`·`/docs`·GET API 200, 인증 없는 `POST /equipment` 401, 스크립트 재실행 시 터널·DNS 재사용 (`/query`는 체험 한도 때문에 미호출) |
+| 2026-10-02 | **Oracle Cloud ap-osaka-1** A1 1 OCPU / 6GB, k3s v1.36.4 (arm64) | 유료(PAYG) 전환 직후 VM 생성(재시도 8회째) → `deploy.sh latest`(GHCR arm64 이미지) → 정상 데이터 300건×3으로 두 모델 학습 → `tunnel.sh`로 cloudflared Deployment, PC 터널 중지 | cloud-init 완료·K3s Ready, 파드 7개 Running·재시작 0회, 인증서 Ready(자체 서명), 외부에서 공개 경로 200·잠금 경로 인증 없이 401·인증 시 200, Grafana 기본 비밀번호 403, 응답이 서버 데이터임을 확인(판정 수) |
 
 **아직 확인하지 못한 것**
 
-- arm64 이미지의 실제 실행 (로컬 PC가 amd64. CI에서 arm64 빌드·의존성 설치까지만 확인)
-- 서버에서의 cloud-init(iptables 정리, K3s 설치)과 파드 네트워크
 - CronJob이 정해진 시각에 자동 실행되는지, API가 실패할 때 Job이 실패로 처리되는지
-- Let's Encrypt 실제 인증서 발급(HTTP-01), 서버에서 rateLimit이 방문자 IP 단위로 동작하는지 (k3d는 앞단 프록시가 출발지 IP를 바꿔 확인 불가)
+- 서버에서 `POST /query` rateLimit이 방문자 IP(`Cf-Connecting-Ip`) 단위로 동작하는지 (확인하려면 하루 질문 한도를 소모해 미확인)
+- 서버에서 제공자 오류 503이 Cloudflare를 거쳐 그대로 전달되는지 (일부러 일으킬 방법이 없어 미확인)
 
 ## 발견한 문제
 
@@ -157,7 +158,7 @@ PC (WSL2 · Docker)                                                        ↓
 | 차트 0.3.0에서 api 파드 3회 재시작 | api가 시작할 때 DB 파드가 아직 준비 전 | DB 대기 initContainer 추가 → 재시작 0회 |
 | 서버가 이미지를 받을 곳이 없음 | 차트 기본값이 로컬 이미지(`mini-mes-api:latest`) | CI가 GHCR에 올리고, 서버용 values에서 GHCR 이미지 지정 |
 | 서버(ARM)에서 amd64 이미지 실행 불가 | Oracle 상시 무료 VM은 ARM(A1) | buildx + QEMU로 amd64/arm64 멀티아키텍처 빌드 |
-| Oracle Ubuntu 이미지에서 파드 네트워크 차단 (예상) | 기본 iptables의 FORWARD REJECT | cloud-init에서 REJECT 규칙 제거 (서버에서 확인 예정) |
+| VM 생성 후에도 INPUT·FORWARD REJECT 규칙이 남아 있음 (10-02) | cloud-init이 rules.v4에서 REJECT를 지우고 `netfilter-persistent reload`를 했지만, 이 이미지는 `IPTABLES_RESTORE_NOFLUSH=yes`라 이미 적용된 규칙이 지워지지 않음 (파일만 수정 → 재부팅 후에야 반영) | 실행 중 규칙은 `iptables -D`로 직접 삭제(파드 DNS·외부 연결 확인), cloud-init 템플릿도 `iptables -D`로 수정 (기존 VM은 metadata `ignore_changes`라 plan 변경 없음) |
 | VM 생성 실패 `500-InternalError, Out of host capacity` | 오사카 리전 무료 ARM 재고 부족 (오사카는 가용 영역 1개) | 5분 간격 재시도 스크립트, 사양을 1 OCPU / 6GB로 낮춰 시도 |
 | 웹훅 URL이 없으면 Grafana가 시작하지 못함 | Discord 수신처는 URL 필수 (`could not find webhook url property`) | 연결되지 않는 예약 도메인(`.invalid`)을 기본값으로, 실제 URL은 뒤에 붙는 Secret이 덮어씀 (`envFrom`은 뒤의 값 우선) |
 | 서버에 데이터 공급원이 없음 (배포 전 발견) | 로컬에서는 시뮬레이터를 직접 실행. 서버에 그대로 배포하면 방문자의 질문에 "데이터 없음"만 나옴 | 차트에 시뮬레이터 Deployment 추가, 서버 values에서 켬 |
@@ -169,4 +170,5 @@ PC (WSL2 · Docker)                                                        ↓
 - 알림 메시지의 Grafana 링크는 외부 공개를 켜면 `https://<host>/grafana/`, 끄면 `http://localhost:3000`(기본값)을 가리킵니다.
 - 자연어 질의 하루 상한은 api 프로세스 메모리에서 셉니다 (replica 1 기준, 재시작하면 0부터). 그 이상은 Gemini 무료 한도 자체가 막습니다.
 - 노드 1대라 VM이 멈추면 서비스도 멈춥니다. PVC는 K3s 기본 local-path(노드 디스크)입니다.
-- 다음: VM 생성 → 보안 목록 80/443·DNS A 레코드 추가 → 서버 배포와 위 미확인 항목 검증 → 자동 배포(pull 기반) 검토.
+- VM은 1 OCPU / 6GB(무료 한도의 절반)로 만들었습니다. 파드 7개 기준 메모리 약 1.6GB, CPU는 시작 직후 외에는 10% 안팎입니다 (10-02).
+- 다음: 위 미확인 항목 검증 → 자동 배포(pull 기반) 검토.
