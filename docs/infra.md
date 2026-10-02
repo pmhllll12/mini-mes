@@ -17,7 +17,7 @@ permalink: /infra/
 | 이미지 | 로컬 빌드 | 로컬 빌드를 `k3d image import` | GHCR (CI가 amd64/arm64로 빌드) |
 | 설정 | `docker-compose.yml` | 차트 기본값 | 차트 + `infra/k3s/values-oci.yaml` |
 | 예약 리포트 | 직접 `POST /reports/daily` | CronJob | CronJob |
-| 상태 | 사용 중 | 검증 완료 | 네트워크 생성, VM 대기 |
+| 상태 | 사용 중 | 검증 완료 · 임시 공개 데모 운영 (아래) | 네트워크 생성, VM 대기 |
 
 ## 서버 구성
 
@@ -40,6 +40,24 @@ PC ─ ssh :22 (my IP/32 only) ─→ OCI ap-osaka-1               │
 - 관리 경로는 내 IP의 SSH 하나뿐입니다. `kubectl`·`helm`은 SSH 터널로 K3s API에 붙습니다.
 - 방문자 경로(80/443)는 외부 공개 구성(아래 "보안 설계")으로 준비했고, VM 생성 후 보안 목록·DNS를 추가해 엽니다.
 - 서버는 이미지를 GHCR에서 받아 옵니다 (빌드는 CI만).
+
+### 임시 공개 데모 (개인 PC k3d + Cloudflare Tunnel)
+
+VM이 재고 부족으로 생성되지 않는 동안, 같은 차트·`values-oci.yaml`·GHCR 이미지를 개인 PC의 k3d 클러스터에 올리고 Cloudflare Tunnel로 같은 주소(`mes.pmhllll12.cloud`)에 공개합니다 (2026-10-02~).
+
+```
+visitor ─ https ─→ Cloudflare edge (TLS) ═══ tunnel (outbound only) ═══ cloudflared container
+                                                                          │ k3d Docker network
+PC (WSL2 · Docker)                                                        ↓
+ └ k3d mini-mes-demo ─ serverlb :443 (host 127.0.0.1:28443 only) ─→ Traefik ─→ api · Grafana …
+```
+
+- **인바운드 포트를 열지 않습니다.** cloudflared가 Cloudflare로 나가는 연결만 만들고, k3d 네트워크 안에서 serverlb:443으로 전달합니다. 호스트에는 127.0.0.1로만 바인딩합니다.
+- **TLS:** 공개 인증서는 Cloudflare 엣지가 맡습니다. 터널 뒤에서는 Let's Encrypt HTTP-01을 쓸 수 없어, Traefik은 자체 서명 인증서(`infra/local-demo/values-demo.yaml`의 `clusterIssuer: selfsigned`)를 쓰고 cloudflared가 검증을 끄되 SNI는 실제 호스트로 보내 IngressRoute와 맞춥니다.
+- **rateLimit:** 터널을 거치면 출발지가 모두 cloudflared라, Cloudflare가 넣는 방문자 IP 헤더(`Cf-Connecting-Ip`)로 제한합니다. origin은 터널로만 닿고 Cloudflare가 이 헤더를 덮어쓰므로 위조할 수 없습니다.
+- **상시 실행:** cloudflared는 WSL 서비스 대신 Docker 컨테이너(`restart unless-stopped`)로 돌립니다. WSL은 터미널이 닫히면 종료될 수 있기 때문입니다. k3d 노드 컨테이너도 Docker와 함께 다시 켜집니다.
+- **재현:** `infra/local-demo/tunnel.sh` — 터널 생성(있으면 재사용), 설정 파일 생성, DNS CNAME, 컨테이너 실행까지. 터널 인증 정보와 설정 파일은 레포 밖(`~/.cloudflared/`)에 둡니다.
+- **한계:** PC가 꺼지거나 절전에 들어가면 데모도 멈춥니다. VM이 생기면 DNS를 VM으로 바꾸고 이 구성은 내립니다.
 
 ### Terraform (`infra/terraform/oci/`)
 
@@ -123,6 +141,7 @@ PC ─ ssh :22 (my IP/32 only) ─→ OCI ap-osaka-1               │
 | 2026-10-01 | Oracle Cloud ap-osaka-1 | `retry-apply.sh` (1 OCPU / 6GB, 2분 간격), plan은 VM 1개 추가만 남음 | 계속 `Out of host capacity` → 재시도 중 |
 | 2026-10-01 | k3d (k3s v1.36.4), 차트 0.8.0 | 시뮬레이터 Deployment (5초 간격으로 단축) | 파드 Running·재시작 0회, api Service로 전송 201, 렌더링된 ConfigMap 스크립트가 원본과 동일 |
 | 2026-10-01 | k3d (k3s v1.36.4 / Traefik 3.7.8), 차트 0.8.0 | 외부 공개 구성을 `deploy.sh`로 배포 (자체 서명 ClusterIssuer, `mes.localtest.me`, LLM 호출 없음) | 인증서 Ready, HTTP→HTTPS 301, 공개 경로 200, 쓰기·`/metrics`는 인증 없이 401·인증 시 통과, `/query` 다른 제공자 403·연속 6회 중 3번째부터 429, 파드 5개 재시작 0회 (k3s v1.30 / Traefik 2.11에서도 같은 결과) |
+| 2026-10-02 | 개인 PC k3d `mini-mes-demo` (k3s v1.36.4) + Cloudflare Tunnel | GHCR `latest`를 `values-oci.yaml` + `values-demo.yaml`로 배포, `tunnel.sh`로 터널·DNS·cloudflared 컨테이너 | 엣지 연결 4개(icn), 외부에서 `/chat`·`/grafana`·`/docs`·GET API 200, 인증 없는 `POST /equipment` 401, 스크립트 재실행 시 터널·DNS 재사용 (`/query`는 체험 한도 때문에 미호출) |
 
 **아직 확인하지 못한 것**
 

@@ -397,7 +397,7 @@ K3s 서버는 Oracle Cloud 상시 무료 ARM VM(A1.Flex, 오사카 `ap-osaka-1`)
 구성도·보안 설계·CI/CD·검증 기록은 **[인프라 상세 문서](docs/infra.md)**([GitHub Pages](https://pmhllll12.github.io/mini-mes/infra/))에 정리했습니다.
 
 - **외부 노출 최소화:** 보안 목록 인바운드는 SSH(22)를 내 IP(`allowed_ssh_cidr`, `0.0.0.0/0`은 validation으로 거부)에만 허용합니다. K3s API·Prometheus는 열지 않고 SSH 터널로 접속합니다.
-- **외부 공개 (준비 완료, VM 생성 후 적용):** `https://mes.pmhllll12.cloud` — K3s 기본 Traefik(IngressRoute) + cert-manager(Let's Encrypt HTTP-01). 보안 목록 80/443과 DNS 레코드는 VM 생성 후 바꿉니다. 지금은 임시로 개인 PC k3d(`infra/local-demo/values-demo.yaml`) 앞에 Cloudflare Tunnel(cloudflared 컨테이너, k3d 네트워크의 serverlb:443으로 전달)을 두어 같은 주소로 공개 중입니다 — 인바운드 포트를 열지 않고, rateLimit은 `Cf-Connecting-Ip` 기준.
+- **외부 공개 (준비 완료, VM 생성 후 적용):** `https://mes.pmhllll12.cloud` — K3s 기본 Traefik(IngressRoute) + cert-manager(Let's Encrypt HTTP-01). 보안 목록 80/443과 DNS 레코드는 VM 생성 후 바꿉니다. 지금은 임시로 개인 PC k3d(`infra/local-demo/values-demo.yaml`) 앞에 Cloudflare Tunnel(cloudflared 컨테이너, k3d 네트워크의 serverlb:443으로 전달)을 두어 같은 주소로 공개 중입니다 — 인바운드 포트를 열지 않고, rateLimit은 `Cf-Connecting-Ip` 기준. 터널 구성은 `infra/local-demo/tunnel.sh`.
   - 공개: 채팅 화면·API 조회(GET, `/docs` 포함), `/grafana`(익명 Viewer)
   - `POST /query`: 공개하되 IP당 rateLimit(분당 약 3회) + 하루 8건 상한 + Gemini만 허용 — 무료 한도(하루 20회)를 방문자가 다 쓰지 않게
   - 잠금(basic-auth): 생산실적·품질 이벤트 등록, 리포트 재생성 등 그 밖의 요청과 `/metrics`
