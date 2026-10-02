@@ -185,7 +185,10 @@ async function ask(question) {
     try { body = JSON.parse(text); } catch (e) { /* 프록시가 준 텍스트 응답 */ }
     if (!res.ok) {
       const detail = body && body.detail ? (typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail)) : text.trim();
-      const hint = res.status === 429 && !(body && body.detail) ? "요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요." : detail;
+      // JSON이 아닌 응답(프록시 오류 페이지 등)은 원문 HTML을 그대로 보여 주지 않는다
+      const hint = body && body.detail ? detail
+        : res.status === 429 ? "요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요."
+        : "서버에 일시적인 문제가 있습니다. 잠시 후 다시 시도해 주세요.";
       pending.remove();
       add("error", esc(`${res.status} ${hint}`));
       return;

@@ -343,8 +343,9 @@ def natural_language_query(payload: schemas.QueryIn, db: Session = Depends(get_d
     except NLQProviderError as e:
         NLQ_REQUESTS.labels(provider.name, "error").inc()
         log.warning("자연어 질의 제공자 오류 (%s): %s", provider.name, e)
-        # 제공자 한도 초과는 429 (잠시 뒤 다시 시도), 그 밖은 502
-        raise HTTPException(status_code=429 if e.status == 429 else 502, detail=str(e))
+        # 제공자 한도 초과는 429 (잠시 뒤 다시 시도), 그 밖은 503.
+        # 502는 쓰지 않는다 - Cloudflare가 origin의 502/504를 자체 오류 페이지로 바꿔 detail이 사라진다
+        raise HTTPException(status_code=429 if e.status == 429 else 503, detail=str(e))
     NLQ_REQUESTS.labels(provider.name, result.stop).inc()
     return asdict(result)
 

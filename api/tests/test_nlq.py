@@ -470,3 +470,16 @@ def test_query_returns_429_when_provider_rate_limited(client, monkeypatch):
     monkeypatch.setattr(main, "get_nlq_provider", lambda requested: Limited())
     res = client.post("/query", json={"question": "설비 목록"})
     assert res.status_code == 429 and "분당" in res.json()["detail"]
+
+
+def test_query_returns_503_with_detail_when_provider_fails(client, monkeypatch):
+    # 502가 아니어야 Cloudflare 등 앞단 프록시가 응답 본문(detail)을 바꾸지 않는다
+    class Overloaded:
+        name = "fake"
+
+        def run(self, user_text, run_tool, max_rounds):
+            raise NLQProviderError("Gemini API 오류 (HTTP 503)", 503)
+
+    monkeypatch.setattr(main, "get_nlq_provider", lambda requested: Overloaded())
+    res = client.post("/query", json={"question": "설비 목록"})
+    assert res.status_code == 503 and "HTTP 503" in res.json()["detail"]
