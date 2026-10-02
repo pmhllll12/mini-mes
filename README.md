@@ -4,7 +4,7 @@
 Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단계적으로 고도화하며 만들고 있습니다.
 
 > **현재 상태:** 7주차 진행 중 (핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링·Discord 알림, GitHub Actions CI, Helm 차트 + k3d 로컬 검증, 이상탐지 워커 + 가상 데이터 기준 성능 평가, 자연어 질의 API — Gemini 13/13 통과, Claude 미평가, 예약 리포트).
-> **배포 상태:** Helm 차트는 k3d에서 검증을 마쳤고, 서버와 같은 K3s 버전·같은 values·GHCR 이미지로 서버 배포 경로까지 로컬에서 확인했습니다. K3s 서버는 Oracle Cloud 상시 무료 ARM VM(오사카)으로 정해 Terraform으로 네트워크까지 만들었지만, VM은 무료 ARM 재고 부족("Out of host capacity")으로 생성을 재시도하는 중입니다 (2026-10-01 기준). 서버 배포 결과는 VM이 생기면 추가합니다.
+> **배포 상태:** Helm 차트는 k3d에서 검증을 마쳤고, 서버와 같은 K3s 버전·같은 values·GHCR 이미지로 서버 배포 경로까지 로컬에서 확인했습니다. K3s 서버는 Oracle Cloud 상시 무료 ARM VM(오사카)으로 정해 Terraform으로 네트워크까지 만들었지만, VM은 무료 ARM 재고 부족("Out of host capacity")으로 생성을 재시도하는 중입니다 (2026-10-01 기준). 그동안 같은 차트·values·GHCR 이미지를 개인 PC k3d에 올려 Cloudflare Tunnel로 **https://mes.pmhllll12.cloud** 에 임시 공개하고 있습니다 (2026-10-02~, PC가 꺼져 있으면 접속 불가).
 
 프로젝트 소개 페이지(GitHub Pages, Jekyll): https://pmhllll12.github.io/mini-mes/ — 소스는 `docs/` (로컬 미리보기: `cd docs && jekyll serve --port 4002` → http://localhost:4002/mini-mes/)
 
@@ -397,7 +397,7 @@ K3s 서버는 Oracle Cloud 상시 무료 ARM VM(A1.Flex, 오사카 `ap-osaka-1`)
 구성도·보안 설계·CI/CD·검증 기록은 **[인프라 상세 문서](docs/infra.md)**([GitHub Pages](https://pmhllll12.github.io/mini-mes/infra/))에 정리했습니다.
 
 - **외부 노출 최소화:** 보안 목록 인바운드는 SSH(22)를 내 IP(`allowed_ssh_cidr`, `0.0.0.0/0`은 validation으로 거부)에만 허용합니다. K3s API·Prometheus는 열지 않고 SSH 터널로 접속합니다.
-- **외부 공개 (준비 완료, VM 생성 후 적용):** `https://mes.pmhllll12.cloud` — K3s 기본 Traefik(IngressRoute) + cert-manager(Let's Encrypt HTTP-01). 보안 목록 80/443과 DNS A 레코드는 VM 생성 후 추가합니다.
+- **외부 공개 (준비 완료, VM 생성 후 적용):** `https://mes.pmhllll12.cloud` — K3s 기본 Traefik(IngressRoute) + cert-manager(Let's Encrypt HTTP-01). 보안 목록 80/443과 DNS 레코드는 VM 생성 후 바꿉니다. 지금은 임시로 개인 PC k3d(`infra/local-demo/values-demo.yaml`) 앞에 Cloudflare Tunnel(cloudflared 컨테이너, k3d 네트워크의 serverlb:443으로 전달)을 두어 같은 주소로 공개 중입니다 — 인바운드 포트를 열지 않고, rateLimit은 `Cf-Connecting-Ip` 기준.
   - 공개: 채팅 화면·API 조회(GET, `/docs` 포함), `/grafana`(익명 Viewer)
   - `POST /query`: 공개하되 IP당 rateLimit(분당 약 3회) + 하루 8건 상한 + Gemini만 허용 — 무료 한도(하루 20회)를 방문자가 다 쓰지 않게
   - 잠금(basic-auth): 생산실적·품질 이벤트 등록, 리포트 재생성 등 그 밖의 요청과 `/metrics`
