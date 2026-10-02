@@ -1,0 +1,9 @@
+{
+  "name": "mini-mes-demo-video",
+  "private": true,
+  "type": "module",
+  "description": "공개 데모를 브라우저로 조작하며 자막과 함께 1080p로 녹화",
+  "dependencies": {
+    "playwright": "1.63.0"
+  }
+}
