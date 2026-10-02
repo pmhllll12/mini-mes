@@ -38,19 +38,36 @@ variable "allowed_ssh_cidr" {
 }
 
 # Always Free: A1.Flex 합계 2 OCPU / 12GB (2026-06-15에 4 OCPU / 24GB에서 줄어듦), 블록 볼륨 합계 200GB
+# 유료(PAYG) 계정은 상시 무료 한도를 넘으면 과금되므로 한도 안의 값만 허용
+# (A1 상시 무료: 2 OCPU / 12GB, 블록 스토리지 200GB — 2026-06-15 기준)
 variable "ocpus" {
   type    = number
   default = 2
+
+  validation {
+    condition     = var.ocpus >= 1 && var.ocpus <= 2
+    error_message = "ocpus는 상시 무료 한도인 1~2만 허용합니다."
+  }
 }
 
 variable "memory_gb" {
   type    = number
   default = 12
+
+  validation {
+    condition     = var.memory_gb >= 1 && var.memory_gb <= 12
+    error_message = "memory_gb는 상시 무료 한도인 12 이하만 허용합니다."
+  }
 }
 
 variable "boot_volume_gb" {
   type    = number
   default = 50
+
+  validation {
+    condition     = var.boot_volume_gb >= 50 && var.boot_volume_gb <= 200
+    error_message = "boot_volume_gb는 50~200만 허용합니다 (상시 무료 블록 스토리지 200GB)."
+  }
 }
 
 variable "availability_domain_index" {

@@ -403,7 +403,7 @@ K3s 서버는 Oracle Cloud 상시 무료 ARM VM(A1.Flex, 오사카 `ap-osaka-1`)
   - 잠금(basic-auth): 생산실적·품질 이벤트 등록, 리포트 재생성 등 그 밖의 요청과 `/metrics`
 - **Oracle Ubuntu 이미지의 iptables:** 기본 규칙이 22 외 INPUT과 모든 FORWARD를 REJECT해 파드 네트워크가 막히므로, cloud-init에서 REJECT 규칙만 지웁니다 (외부 방화벽은 보안 목록이 담당).
 - **이미지:** VM이 ARM이라 CI가 main 푸시 때 `ghcr.io/pmhllll12/mini-mes-{api,anomaly-worker}`를 amd64/arm64로 빌드해 올립니다 (`sha-<커밋>`, `latest` 태그). 서버용 values는 `infra/k3s/values-oci.yaml`.
-- **비용 안전장치:** `budget.tf`가 월 예산과 이메일 알림(실제 지출이 예산의 1% 초과, 월말 예상 초과)을 만듭니다. 상시 무료만 쓰므로 지출은 0이어야 하고, 과금이 생기면 바로 알기 위함입니다 (알림일 뿐 지출을 막지는 않음). 수신 이메일은 `terraform.tfvars`의 `budget_alert_email`.
+- **비용 안전장치:** 계정은 A1 재고를 잡기 위해 유료(Pay As You Go)로 전환했고(2026-10-02), 상시 무료 한도를 넘는 사양(2 OCPU / 12GB, 부트 볼륨 200GB 초과)은 변수 validation이 plan 단계에서 거부합니다. `budget.tf`가 월 예산과 이메일 알림(실제 지출이 예산의 1% 초과, 월말 예상 초과)을 만듭니다. 상시 무료만 쓰므로 지출은 0이어야 하고, 과금이 생기면 바로 알기 위함입니다 (알림일 뿐 지출을 막지는 않음). 수신 이메일은 `terraform.tfvars`의 `budget_alert_email`.
 - **자격 증명:** OCI API 키는 `~/.oci/config`에서 읽고, `terraform.tfvars`·state·kubeconfig는 gitignore.
 
 ```bash
