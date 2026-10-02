@@ -3,8 +3,9 @@
 제조 설비의 생산실적·가동률(OEE)·품질 이력을 수집하고 집계하는 미니 MES(Manufacturing Execution System) 개인 프로젝트입니다.
 Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단계적으로 고도화하며 만들고 있습니다.
 
-> **현재 상태:** 7주차 진행 중 (핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링·Discord 알림, GitHub Actions CI, Helm 차트 + k3d 로컬 검증, 이상탐지 워커 + 가상 데이터 기준 성능 평가, 자연어 질의 API — Gemini 13/13 통과, Claude 미평가, 예약 리포트).
+> **현재 상태:** 7주 로드맵 완료 (핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링·Discord 알림, GitHub Actions CI, Helm 차트 + k3d 로컬 검증, 이상탐지 워커 + 가상 데이터 기준 성능 평가, 자연어 질의 API — Gemini 13/13 통과, Claude 미평가, 예약 리포트).
 > **배포 상태:** **https://mes.pmhllll12.cloud** 에서 운영 중입니다 (2026-10-02~). Oracle Cloud 상시 무료 ARM VM(오사카, Terraform으로 생성) 위 K3s에 Helm 차트로 배포했고, 포트를 열지 않고 Cloudflare Tunnel로 공개합니다. VM 재고를 기다리는 동안에는 같은 구성을 개인 PC k3d에서 임시로 공개했습니다.
+> **시연 영상 (1분 42초):** https://youtu.be/lURO3deVYwU — 자연어 질의 채팅(근거 표시)·Grafana 대시보드·API 문서를 실제 서버에서 녹화 (2026-10-02, `tools/demo-video/`로 자동 녹화)
 
 프로젝트 소개 페이지(GitHub Pages, Jekyll): https://pmhllll12.github.io/mini-mes/ — 소스는 `docs/` (로컬 미리보기: `cd docs && jekyll serve --port 4002` → http://localhost:4002/mini-mes/)
 
@@ -324,7 +325,7 @@ ruff check anomaly-worker evaluate
 
 ## K3s/Helm (로컬 검증)
 
-`charts/mini-mes/`에 api·db·이상탐지 워커·Prometheus·Grafana를 옮기는 Helm 차트가 있습니다. 이 절은 k3d(또는 minikube) 로컬 검증 절차이고, 서버 배포는 아래 [Oracle Cloud K3s 배포](#oracle-cloud-k3s-배포-terraform-진행-중)를 참고하세요.
+`charts/mini-mes/`에 api·db·이상탐지 워커·Prometheus·Grafana를 옮기는 Helm 차트가 있습니다. 이 절은 k3d(또는 minikube) 로컬 검증 절차이고, 서버 배포는 아래 [Oracle Cloud K3s 배포](#oracle-cloud-k3s-배포-terraform-운영-중)를 참고하세요.
 
 - DB 접속 정보(`POSTGRES_USER`/`PASSWORD`/`DB`, `DATABASE_URL`)는 Secret(`templates/secret.yaml`)로 관리
 - DB 저장소는 PersistentVolumeClaim(`templates/db-pvc.yaml`, 기본 1Gi) — Pod를 지워도 데이터가 유지되는 것까지 확인함
@@ -391,7 +392,7 @@ minikube를 쓴다면 2)의 `k3d image import` 대신 `minikube image load mini-
 - 정적 검증: `helm lint` 통과, 렌더링된 리소스 20개 kubeconform(strict) 통과 (차트 0.6.0 기준, CronJob 포함. Prometheus PVC 끄면 19개, `monitoring.enabled=false`면 11개)
 - 자연어 질의 키(차트 0.4.0): api 컨테이너가 `<release>-llm` Secret(`nlq.existingSecret`로 변경 가능)의 `ANTHROPIC_API_KEY`·`GEMINI_API_KEY`를 `optional` 참조 — Secret이 없으면 api는 정상 동작하고 `/query`만 503. 제공자·모델은 `nlq.provider`, `nlq.claudeModel`, `nlq.geminiModel`. k3d 확인: Secret 없이 파드 5개 재시작 0회·`/health` 200·`/query` 503 → `.env`로 Secret 생성·api 재시작 후 파드에 `GEMINI_API_KEY` 주입(값은 출력하지 않고 길이만 확인), `/query`가 Gemini까지 도달(당일 무료 한도 소진으로 429 응답 — 답변 생성까지는 미확인)
 
-## Oracle Cloud K3s 배포 (Terraform, 진행 중)
+## Oracle Cloud K3s 배포 (Terraform, 운영 중)
 
 K3s 서버는 Oracle Cloud 상시 무료 ARM VM(A1.Flex, 오사카 `ap-osaka-1`)에 올립니다. `infra/terraform/oci/`가 VCN·인터넷 게이트웨이·서브넷·보안 목록·VM을 만들고, cloud-init이 K3s를 설치합니다.
 구성도·보안 설계·CI/CD·검증 기록은 **[인프라 상세 문서](docs/infra.md)**([GitHub Pages](https://pmhllll12.github.io/mini-mes/infra/))에 정리했습니다.
@@ -464,7 +465,7 @@ kubectl scale deploy/mini-mes-simulator --replicas=1
 | 4주 | Helm 차트 작성 + k3d 로컬 검증 (Secret/PVC/probe, 서버 배포 대상은 미정). 5주차 이후 anomaly-worker(Deployment·모델 PVC·메트릭 Service), Prometheus·Grafana도 차트에 추가 | ✅ |
 | 5주 | 이상탐지(예지보전) 워커: 설비별 Isolation Forest + robust z-score(정상 데이터만 학습), `/anomalies` API, 급변·열화 경보 분리, 워커 메트릭·Grafana 패널, 시뮬레이터 라벨 기반 성능 평가(가상 데이터 기준 급변 F1 v1 0.525 → v2 0.959), 워커 단위 테스트·CI | ✅ |
 | 6주 | 자연어 질의 API(`POST /query`, Claude·Gemini function calling, 읽기 전용 도구 4개(09-29에 열화 경보·일일 리포트 추가해 6개), 근거 반환), 평가 스크립트 — Gemini 13/13 통과(건수·수량 혼동은 도구 필드 이름 수정 후 2회 확인, 시간대 혼동은 KST 변환 후 1회 확인), Claude 미평가 | ✅ |
-| 7주 | Terraform(Oracle Cloud: VCN·보안 목록·A1 VM + cloud-init K3s), CI에서 amd64/arm64 이미지를 GHCR에 푸시·Terraform 검사, 문서화·데모 영상 — 10-02 VM 생성·서버 배포(Cloudflare Tunnel 공개) 완료, 데모 영상 남음 | 진행 중 |
+| 7주 | Terraform(Oracle Cloud: VCN·보안 목록·A1 VM + cloud-init K3s), CI에서 amd64/arm64 이미지를 GHCR에 푸시·Terraform 검사, 문서화·데모 영상 — 10-02 VM 생성·서버 배포(Cloudflare Tunnel 공개), [시연 영상](https://youtu.be/lURO3deVYwU) | ✅ |
 
 ## 알려진 한계
 

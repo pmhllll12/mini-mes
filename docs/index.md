@@ -22,11 +22,12 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 | 자연어 질의 채팅 | [mes.pmhllll12.cloud/chat](https://mes.pmhllll12.cloud/chat) | 설비·OEE·불량·이상탐지를 자연어로 질문. 답변마다 근거(호출한 도구·인자·결과 표) 표시 |
 | Grafana 대시보드 | [mes.pmhllll12.cloud/grafana](https://mes.pmhllll12.cloud/grafana/) | OEE·불량·이상 점수·열화 경보·API 지표 (로그인 없이 조회) |
 | API 문서 | [mes.pmhllll12.cloud/docs](https://mes.pmhllll12.cloud/docs) | 조회 API는 바로 실행 가능, 데이터 등록은 잠금 |
+| 시연 영상 | [YouTube (1분 42초)](https://youtu.be/lURO3deVYwU) | 위 세 화면을 실제 서버에서 녹화 (2026-10-02). 채팅 한도가 찼을 때도 동작을 볼 수 있음 |
 
 - 데이터는 서버 안의 시뮬레이터가 1분마다 보내는 가상 설비 데이터입니다.
 - 채팅은 Gemini 무료 등급을 쓰므로 하루 8건, IP당 분당 약 3회로 제한됩니다. 한도를 넘으면 초기화 시각을 안내합니다.
 
-> **현재 상태:** 7주차 진행 중 — 핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링·Discord 알림, GitHub Actions CI, Helm 차트 + k3d 로컬 검증, 이상탐지 워커 + 가상 데이터 기준 성능 평가, 자연어 질의 API(Gemini 13/13 통과, Claude 미평가), 예약 리포트.
+> **현재 상태:** 7주 로드맵 완료 — 핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링·Discord 알림, GitHub Actions CI, Helm 차트 + k3d 로컬 검증, 이상탐지 워커 + 가상 데이터 기준 성능 평가, 자연어 질의 API(Gemini 13/13 통과, Claude 미평가), 예약 리포트.
 > **배포 상태:** Helm 차트는 k3d에서 검증을 마쳤고, 서버와 같은 K3s 버전·같은 values·GHCR 이미지로 서버 배포 경로까지 로컬에서 확인했습니다. Oracle Cloud 상시 무료 ARM VM(오사카)은 Terraform으로 네트워크까지 만들었고, VM은 무료 ARM 재고 부족으로 생성을 재시도하는 중입니다 (2026-10-01 기준).
 
 ## 배경
@@ -105,4 +106,4 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 | 4주 | Helm 차트 + k3d 로컬 검증 | ✅ |
 | 5주 | 이상탐지(예지보전) 워커, `/anomalies` API, 워커 메트릭·Grafana 패널, 라벨 기반 성능 평가, CI | ✅ |
 | 6주 | 자연어 질의 API (Claude·Gemini function calling) — Gemini 13/13 통과, Claude 미평가 | ✅ |
-| 7주 | Terraform(Oracle Cloud), GHCR 멀티아키텍처 이미지, 문서화·데모 영상 | 진행 중 |
+| 7주 | Terraform(Oracle Cloud), GHCR 멀티아키텍처 이미지, 서버 배포, 문서화·데모 영상 | ✅ |

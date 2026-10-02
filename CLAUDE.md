@@ -47,7 +47,7 @@ FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana, GitHub 
 
 ## 로드맵
 1주 코어 API/시뮬레이터 → 2주 OEE 고도화 → 3주 모니터링 → 4주 K3s/Helm (완료)
-→ 5주 이상탐지(Isolation Forest) (완료) → 6주 자연어 질의 (완료: Gemini 13/13(09-30 새 도구 질문 2개 포함), Claude 미평가. 건수·수량 혼동은 get_defect_summary 결과 필드명을 품질이벤트_건수/불량수량_개로 바꿔 개선, 2회 확인. 시간대 혼동은 도구 결과 시각을 KST로 변환해 개선, 1회 확인) → 7주 Terraform/CI-CD/문서화 (진행 중: 10-02 PAYG 전환 직후 A1 VM 생성 → 서버 배포·Cloudflare Tunnel 공개 완료, 남은 것: 시연 영상)
+→ 5주 이상탐지(Isolation Forest) (완료) → 6주 자연어 질의 (완료: Gemini 13/13(09-30 새 도구 질문 2개 포함), Claude 미평가. 건수·수량 혼동은 get_defect_summary 결과 필드명을 품질이벤트_건수/불량수량_개로 바꿔 개선, 2회 확인. 시간대 혼동은 도구 결과 시각을 KST로 변환해 개선, 1회 확인) → 7주 Terraform/CI-CD/문서화 (완료: 10-02 A1 VM 생성 → 서버 배포·Cloudflare Tunnel 공개, 시연 영상 https://youtu.be/lURO3deVYwU — README·docs/index.md에 링크)
 
 ## 알려진 이슈
 - (해결됨, 2주차) production_log.qty_defect 와 quality_event 가 서로 연결되어 있지 않던 문제 → quality_event.production_log_id(nullable FK) 추가, `/quality/defect-summary` API로 설비별·불량유형별 집계 제공

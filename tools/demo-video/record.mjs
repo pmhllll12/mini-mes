@@ -9,7 +9,7 @@ const B = process.env.BASE || 'https://mes.pmhllll12.cloud';
 const MOCK = process.env.MOCK === '1';
 const W = 1280, H = 720; // 화면 배율 1.5로 렌더링해 1920x1080으로 녹화
 const Q1 = '최근 24시간 동안 이상이 가장 많이 탐지된 설비는?';
-const Q2 = 'EQ-003의 어제 불량을 유형별로 알려줘';
+const Q2 = 'EQ-003의 오늘 불량을 유형별로 알려줘';
 
 // Xvfb(1920x1080) 위에 실제 창을 1.5배율·키오스크로 띄우고, 녹화는 바깥의 ffmpeg x11grab이 맡는다 (rec.sh)
 // 번역 팝업은 실행 인자로 꺼지지 않아 프로필 설정으로 끈다
@@ -168,7 +168,7 @@ await cap('');
 await card('구성', [
   'GitHub Actions → GHCR (amd64/arm64) → Helm 차트로 K3s 배포',
   '이상탐지: 설비별 Isolation Forest + robust z-score, 급변·열화 경보 분리',
-  'Terraform(Oracle Cloud) · 지금은 개인 PC k3d + Cloudflare Tunnel로 임시 공개',
+  'Terraform(Oracle Cloud A1 ARM) · Cloudflare Tunnel로 공개 (80/443 미개방)',
   '<span style="color:#93c5fd">github.com/pmhllll12/mini-mes</span>'], 7000);
 
 fs.writeFileSync('stop', '');
