@@ -70,7 +70,7 @@ PC (WSL2 · Docker)                                                        ↓
 | VM | `VM.Standard.A1.Flex`, 기본 2 OCPU / 12GB(서버는 재고 때문에 1 OCPU / 6GB로 생성, `terraform.tfvars`에 고정), 부트 볼륨 50GB, 최신 Ubuntu 24.04(aarch64) 이미지 |
 | cloud-init | iptables REJECT 규칙 제거 → K3s(v1.36.4) 설치 → kubeconfig를 ubuntu 사용자에게 복사 |
 | 예산 (`budget.tf`) | 월 예산 1(청구 통화), 실제 지출이 1%를 넘으면 / 월말 예상이 예산을 넘으면 이메일. 상시 무료만 쓰므로 지출은 0이어야 하고, 과금이 생기면 바로 알기 위한 안전장치 (지출을 막지는 않음) |
-| 할당량 (`quota.tf`) | 생성 단계에서 거부하는 안전장치. A1만 2 OCPU / 12GB, 블록·부트 볼륨 합계 200GB·백업 5개 허용, 나머지 유료 VM shape·로드밸런서·DB는 0. Terraform뿐 아니라 콘솔·API로 만들어도 적용되고, 기존 자원에는 영향 없음. 데이터 전송량처럼 할당량 대상이 아닌 과금은 예산 알림으로만 잡힘 |
+| 할당량 (`quota.tf`) | 생성 단계에서 거부하는 안전장치. A1만 2 OCPU / 12GB, 블록·부트 볼륨 합계 200GB·백업 5개 허용, 나머지 유료 VM shape·로드밸런서·DB와 쓰지 않는 유료 서비스 64개(OKE·Functions·파일/오브젝트 스토리지·PostgreSQL·Redis·Data Science·AI·DNS·Email·KMS·VPN·WAF 등, 10-06 추가)는 0. VCN·공인 IP·계정 관리·무료 관리 기능(Monitoring·Logging·Notifications 등)은 그대로. Terraform뿐 아니라 콘솔·API로 만들어도 적용되고, 기존 자원에는 영향 없음. 데이터 전송량처럼 할당량 대상이 아닌 과금은 예산 알림으로만 잡힘 |
 
 - **상시 무료 범위 안에서만** 만듭니다 (A1 합계 2 OCPU / 12GB — 2026-06-15에 4 OCPU / 24GB에서 줄어듦, 블록 볼륨 합계 200GB). 무료 체험 기간이 끝나도 사라지거나 과금되는 자원이 없게 하기 위함입니다. 계정은 A1 재고를 잡기 위해 유료(Pay As You Go)로 전환했으므로(2026-10-02), 한도를 넘는 사양은 `ocpus`(1~2)·`memory_gb`(12 이하)·`boot_volume_gb`(50~200) 변수 validation이 plan 단계에서 거부합니다.
 - 이미지가 새로 나와도 VM을 다시 만들지 않도록 이미지 ID와 metadata는 `ignore_changes`로 둡니다.
@@ -146,6 +146,7 @@ PC (WSL2 · Docker)                                                        ↓
 | 2026-10-02 | 개인 PC k3d `mini-mes-demo` (k3s v1.36.4) + Cloudflare Tunnel | GHCR `latest`를 `values-oci.yaml` + `values-demo.yaml`로 배포, `tunnel.sh`로 터널·DNS·cloudflared 컨테이너 | 엣지 연결 4개(icn), 외부에서 `/chat`·`/grafana`·`/docs`·GET API 200, 인증 없는 `POST /equipment` 401, 스크립트 재실행 시 터널·DNS 재사용 (`/query`는 체험 한도 때문에 미호출) |
 | 2026-10-02 | **Oracle Cloud ap-osaka-1** A1 1 OCPU / 6GB, k3s v1.36.4 (arm64) | 유료(PAYG) 전환 직후 VM 생성(재시도 8회째) → `deploy.sh latest`(GHCR arm64 이미지) → 정상 데이터 300건×3으로 두 모델 학습 → `tunnel.sh`로 cloudflared Deployment, PC 터널 중지 | cloud-init 완료·K3s Ready, 파드 7개 Running·재시작 0회, 인증서 Ready(자체 서명), 외부에서 공개 경로 200·잠금 경로 인증 없이 401·인증 시 200, Grafana 기본 비밀번호 403, 응답이 서버 데이터임을 확인(판정 수) |
 | 2026-10-02 | Oracle Cloud ap-osaka-1 | 계정 전체 자원 읽기 전용 점검 → 할당량 정책(`quota.tf`) 적용 (plan에 VM 사양 변경이 끼어 tfvars를 실제 1/6으로 고정한 뒤 1개 추가만 적용) | 할당량 대상 자원 VM 1대·부트 볼륨 50GB·VCN 1개 (그 외 볼륨·백업·고정 IP·LB 없음), 이번 달 실제·예상 지출 0. 유효 한도 A1 2 OCPU(사용 1)·12GB(사용 6)·E4 0·스토리지 200GB(사용 50) |
+| 2026-10-06 | Oracle Cloud ap-osaka-1 | 카드 청구 문의로 Usage·Budget·Invoice API 읽기 전용 조회 → 할당량 정책에 쓰지 않는 유료 서비스 64개 0 추가 | 10-02~10-05 사용량은 A1 1 OCPU·6GB 상시, 무료 블록 볼륨, 아웃바운드 하루 0.02~0.04로 비용 전부 0 (청구 통화 SGD), 예산 실제·예상 지출 0, 인보이스 0건. 정책 ACTIVE(문장 73개), 적용 후 plan 변경 없음, 서버 /chat 200 |
 
 **아직 확인하지 못한 것**
 
