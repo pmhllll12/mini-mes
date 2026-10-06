@@ -67,6 +67,13 @@ def gemini_quota_message(details: Any) -> str:
     return f"Gemini 요청 한도 초과 ({'분당 요청 수' if '분당' in kinds else '요청 수'}).{wait} 다시 시도해 주세요"
 
 
+def provider_status_message(provider: str, status: int) -> str:
+    """제공자 HTTP 오류를 방문자용 문구로. 5xx(503 과부하 등)는 제공자 쪽 일시 장애라 다시 시도하면 되는 경우가 많다"""
+    if status >= 500:
+        return f"{provider} 서버가 일시적으로 혼잡하거나 장애 중입니다 (HTTP {status}). 잠시 뒤 다시 시도해 주세요"
+    return f"{provider} API 오류 (HTTP {status})"
+
+
 def user_message(question: str, now: Optional[datetime] = None) -> str:
     now = (now or datetime.now(timezone.utc)).astimezone(KST)
     return f"현재 시각: {now.isoformat(timespec='seconds')} (Asia/Seoul)\n\n질문: {question}"
@@ -111,7 +118,7 @@ class ClaudeProvider:
         try:
             return self.client.beta.messages.create(**kwargs)
         except anthropic.APIStatusError as e:
-            raise NLQProviderError(f"Claude API 오류 (HTTP {e.status_code})", e.status_code) from e
+            raise NLQProviderError(provider_status_message("Claude", e.status_code), e.status_code) from e
         except anthropic.APIConnectionError as e:
             raise NLQProviderError("Claude API 연결 실패") from e
 
@@ -188,7 +195,7 @@ class GeminiProvider:
         except errors.APIError as e:
             if e.code == 429:
                 raise NLQProviderError(gemini_quota_message(e.details), 429) from e
-            raise NLQProviderError(f"Gemini API 오류 (HTTP {e.code})", e.code) from e
+            raise NLQProviderError(provider_status_message("Gemini", e.code), e.code) from e
         except OSError as e:
             raise NLQProviderError("Gemini API 연결 실패") from e
 
@@ -262,7 +269,7 @@ class OpenAICompatProvider:
         except requests.RequestException as e:
             raise NLQProviderError("OpenAI 호환 API 연결 실패") from e
         if resp.status_code >= 400:
-            raise NLQProviderError(f"OpenAI 호환 API 오류 (HTTP {resp.status_code})", resp.status_code)
+            raise NLQProviderError(provider_status_message("OpenAI 호환", resp.status_code), resp.status_code)
         return resp.json()
 
     def run(self, user_text: str, run_tool: RunTool, max_rounds: int) -> NLQResult:

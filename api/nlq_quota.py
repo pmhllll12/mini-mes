@@ -33,6 +33,15 @@ class DailyQuota:
             self._used += 1
             return True
 
+    def release(self, now: Optional[datetime] = None) -> None:
+        """try_acquire로 센 1회를 되돌린다 (제공자 오류로 답을 못 준 질문은 세지 않기 위해).
+        그 사이 KST 날짜가 바뀌었으면 새 날의 카운트를 건드리지 않는다"""
+        now = now or datetime.now(KST)
+        with self._lock:
+            day = now.astimezone(KST).date()
+            if day == self._day and self._used > 0:
+                self._used -= 1
+
     def status(self, now: Optional[datetime] = None) -> dict:
         now = now or datetime.now(KST)
         with self._lock:

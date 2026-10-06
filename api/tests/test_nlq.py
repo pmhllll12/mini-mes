@@ -481,5 +481,33 @@ def test_query_returns_503_with_detail_when_provider_fails(client, monkeypatch):
             raise NLQProviderError("Gemini API 오류 (HTTP 503)", 503)
 
     monkeypatch.setattr(main, "get_nlq_provider", lambda requested: Overloaded())
+    monkeypatch.setattr(main, "NLQ_QUOTA", DailyQuota(1))
     res = client.post("/query", json={"question": "설비 목록"})
     assert res.status_code == 503 and "HTTP 503" in res.json()["detail"]
+    # 답을 못 준 질문은 하루 상한에서 빠진다
+    assert client.get("/query/quota").json()["used"] == 0
+
+
+def test_daily_quota_release_returns_one_use_same_day_only():
+    quota = DailyQuota(1)
+    t = datetime(2026, 10, 6, 23, 59, tzinfo=KST)
+    assert quota.try_acquire(t)
+    quota.release(t)
+    assert quota.status(t)["used"] == 0
+    assert quota.try_acquire(t)
+    quota.release(t + timedelta(minutes=2))  # 자정이 지난 뒤 돌려주면 새 날 카운트는 그대로
+    assert quota.status(t + timedelta(minutes=2))["used"] == 0
+    quota.release(t + timedelta(minutes=2))  # 0 아래로는 내려가지 않는다
+    assert quota.status(t + timedelta(minutes=2))["used"] == 0
+
+
+def test_gemini_503_becomes_retry_hint():
+    from google.genai import errors
+
+    class Overloaded:
+        models = SimpleNamespace(generate_content=lambda **kw: (_ for _ in ()).throw(
+            errors.APIError(503, {"error": {"code": 503, "status": "UNAVAILABLE", "message": "The model is overloaded."}})))
+
+    with pytest.raises(NLQProviderError) as e:
+        GeminiProvider("k", "m", 5, client=Overloaded()).run("질문", lambda n, a: (True, {}), max_rounds=1)
+    assert e.value.status == 503 and "HTTP 503" in str(e.value) and "잠시 뒤 다시 시도" in str(e.value)

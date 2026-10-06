@@ -341,6 +341,9 @@ def natural_language_query(payload: schemas.QueryIn, db: Session = Depends(get_d
     try:
         result = provider.run(user_message(payload.question), run_tool, NLQ_MAX_ROUNDS)
     except NLQProviderError as e:
+        # 답을 못 준 질문은 하루 상한에서 빼 준다 (제공자 503 과부하 등으로 방문자 몫이 줄지 않게).
+        # 반복 재시도 남용은 앞단 rateLimit(IP당)이 막는다
+        NLQ_QUOTA.release()
         NLQ_REQUESTS.labels(provider.name, "error").inc()
         log.warning("자연어 질의 제공자 오류 (%s): %s", provider.name, e)
         # 제공자 한도 초과는 429 (잠시 뒤 다시 시도), 그 밖은 503.
