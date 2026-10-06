@@ -158,7 +158,7 @@ permalink: /nlq/
 | 장치 | 위치 | 동작 |
 |---|---|---|
 | IP당 rateLimit | Traefik Middleware (`POST /query`만) | 분당 약 3회, 넘으면 429 |
-| 하루 상한 | api `NLQ_DAILY_LIMIT` (서버 8, 기본 0=없음) | KST 날짜별 질문 수, 넘으면 429와 초기화 시각. 남은 횟수는 `GET /query/quota`로 채팅 화면에 표시. 제공자 설정이 없어 503인 요청은 세지 않음 |
+| 하루 상한 | api `NLQ_DAILY_LIMIT` (서버 8, 기본 0=없음) | KST 날짜별 질문 수, 넘으면 429와 초기화 시각. 남은 횟수는 `GET /query/quota`로 채팅 화면에 표시. 제공자 설정이 없어 503인 요청과 제공자 오류(Gemini 503 과부하 등)로 답을 못 준 질문은 세지 않음 (10-06: Gemini 503 두 건이 방문자 몫을 깎던 문제 수정). 제공자 5xx는 "잠시 뒤 다시 시도" 안내로 표시 |
 | 제공자 고정 | api `NLQ_ALLOWED_PROVIDERS` (서버 `gemini`) | 요청 본문의 `provider`로 다른 제공자를 고르면 403 |
 
 - 하루 8건: 질문 1건에 보통 2회(도구 호출 1회 + 답변), 최대 4회 호출 → 방문자 몫을 제한해 평가용 여유를 남김 (평가도 같은 `gemini-2.5-flash` 한도 사용)
