@@ -245,7 +245,7 @@ curl -X POST http://localhost:8001/query -H 'Content-Type: application/json' \
 # -> answer + tool_calls: [{"name": "get_defect_summary", "input": {"equipment_ids": ["EQ-002"], "start": "...", "end": "..."}, "ok": true, "result": {...}}]
 ```
 
-- 도구 8개: `list_equipment`, `get_oee`, `get_defect_summary`, `get_anomalies`, `get_drift_alarms`, `get_daily_reports`(읽기 전용, 없는 날짜는 만들지 않고 알려줌), `get_machining_quality_summary`·`get_machining_quality_records`(정밀가공 KAMP 데이터, 10-13 추가 — 결과에 데이터 보유 기간을 넣어 없는 기간은 없다고 답하게 함, 로컬 `qwen3:8b`로만 확인하고 Gemini 평가 전) — 결과 필드 이름에 단위를 드러냄(`불량수량_개` 등), 기존 조회 API와 같은 계산 코드를 재사용 (`api/nlq_tools.py`)
+- 도구 8개: `list_equipment`, `get_oee`, `get_defect_summary`, `get_anomalies`, `get_drift_alarms`, `get_daily_reports`(읽기 전용, 없는 날짜는 만들지 않고 알려줌), `get_machining_quality_summary`·`get_machining_quality_records`(정밀가공 KAMP 데이터, 10-13 추가 — 결과에 데이터 보유 기간을 넣어 없는 기간은 없다고 답하게 함, 로컬 `qwen3:8b`와 Gemini `gemini-2.5-flash`로 질문 3~4개씩 확인, 평가 세트에는 아직 없음) — 결과 필드 이름에 단위를 드러냄(`불량수량_개` 등), 기존 조회 API와 같은 계산 코드를 재사용 (`api/nlq_tools.py`)
 - 인자 검증: 등록된 설비만, 시간대가 있는 ISO 8601, 최대 30일. 잘못된 인자는 오류 메시지를 LLM에 돌려줘 스스로 고치게 합니다.
 - 응답에 **호출한 도구·인자·결과**를 함께 돌려줘 답변의 근거를 확인할 수 있습니다. 도구 호출은 최대 3라운드, 그 뒤에는 도구 없이 답변만 받습니다.
 - 제공자 두 가지 (`api/nlq_providers.py`): Claude(`claude-opus-5`, strict 도구, 거절 시 서버측 `fallbacks="default"`) / Gemini(`gemini-flash-latest`, 수동 function calling). 요청의 `provider`, 환경변수 `NLQ_PROVIDER`, 키가 있는 제공자 순으로 고릅니다.
@@ -498,7 +498,7 @@ kubectl scale deploy/mini-mes-simulator --replicas=1
 | 4주 | Helm 차트 작성 + k3d 로컬 검증 (Secret/PVC/probe, 서버 배포 대상은 미정). 5주차 이후 anomaly-worker(Deployment·모델 PVC·메트릭 Service), Prometheus·Grafana도 차트에 추가 | ✅ |
 | 5주 | 이상탐지(예지보전) 워커: 설비별 Isolation Forest + robust z-score(정상 데이터만 학습), `/anomalies` API, 급변·열화 경보 분리, 워커 메트릭·Grafana 패널, 시뮬레이터 라벨 기반 성능 평가(가상 데이터 기준 급변 F1 v1 0.525 → v2 0.959), 워커 단위 테스트·CI | ✅ |
 | 6주 | 자연어 질의 API(`POST /query`, Claude·Gemini function calling, 읽기 전용 도구 4개(09-29에 열화 경보·일일 리포트 추가해 6개), 근거 반환), 평가 스크립트 — Gemini 13/13 통과(건수·수량 혼동은 도구 필드 이름 수정 후 2회 확인, 시간대 혼동은 KST 변환 후 1회 확인), Claude 미평가 | ✅ |
-| 추가 (10-13) | 실제 공개 데이터 연동: KAMP 정밀가공 품질보증 데이터셋 테이블·멱등 적재(재생 옵션), 조회 API·CSV, 자연어 질의 도구 2개, 불합격률 메트릭·Grafana 패널, Helm 훅 Job·재생 CronJob, 목록 API 잠금 | 서버 배포 전 |
+| 추가 (10-13) | 실제 공개 데이터 연동: KAMP 정밀가공 품질보증 데이터셋 테이블·멱등 적재(재생 옵션), 조회 API·CSV, 자연어 질의 도구 2개, 불합격률 메트릭·Grafana 패널, Helm 훅 Job·재생 CronJob, 목록 API 잠금 | 완료 (10-13 서버 배포) |
 | 7주 | Terraform(Oracle Cloud: VCN·보안 목록·A1 VM + cloud-init K3s), CI에서 amd64/arm64 이미지를 GHCR에 푸시·Terraform 검사, 문서화·데모 영상 — 10-02 VM 생성·서버 배포(Cloudflare Tunnel 공개), [시연 영상](https://youtu.be/lURO3deVYwU) | ✅ |
 
 ## 알려진 한계

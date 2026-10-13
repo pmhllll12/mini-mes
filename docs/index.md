@@ -108,4 +108,4 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 | 5주 | 이상탐지(예지보전) 워커, `/anomalies` API, 워커 메트릭·Grafana 패널, 라벨 기반 성능 평가, CI | ✅ |
 | 6주 | 자연어 질의 API (Claude·Gemini function calling) — Gemini 13/13 통과, Claude 미평가 | ✅ |
 | 7주 | Terraform(Oracle Cloud), GHCR 멀티아키텍처 이미지, 서버 배포, 문서화·데모 영상 | ✅ |
-| 추가 (10-13) | 실제 공개 데이터(KAMP 정밀가공 품질) 연동 — 적재·API·자연어 질의·대시보드·Helm 적재 Job | 서버 배포 전 |
+| 추가 (10-13) | 실제 공개 데이터(KAMP 정밀가공 품질) 연동 — 적재·API·자연어 질의·대시보드·Helm 적재 Job | 완료 (10-13 서버 배포) |
