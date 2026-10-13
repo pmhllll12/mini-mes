@@ -2,7 +2,8 @@
 자연어 질의(/query)에서 LLM이 호출하는 읽기 전용 도구
 
 LLM은 SQL을 만들지 않고, 여기 정의된 함수만 이름·인자로 골라 호출한다.
-각 도구는 기존 조회 API(/equipment, /oee, /quality/defect-summary, /anomalies, /drift-alarms, /reports/daily)와
+각 도구는 기존 조회 API(/equipment, /oee, /quality/defect-summary, /anomalies, /drift-alarms, /reports/daily,
+/machining-quality)와
 같은 계산 코드를 재사용하며, 인자는 실행 전에 검증한다. 모든 도구는 읽기 전용이다 (일일 리포트도 생성하지 않고 조회만).
 
 - 설비 ID는 등록된 것만 허용 (빈 배열이면 전체 설비)
@@ -11,6 +12,8 @@ LLM은 SQL을 만들지 않고, 여기 정의된 함수만 이름·인자로 골
 - 수량·건수·시간 필드는 이름에 단위를 드러낸다 (LLM이 불량 수량(개)을 건수로 말하던 문제의 대책)
 - 결과의 시각은 모두 KST로 바꿔 돌려준다. DB 시각(UTC)을 그대로 주면 Gemini가 KST 조회 기간(15:06~16:06+09:00)과
   UTC 경보 시각(06:28Z)을 비교해 경보가 11건 있는데 "없다"고 답했다 (2026-09-30 평가 drift_history)
+- 정밀가공 품질(KAMP 데이터셋) 도구는 설비 ID와 연결되지 않는 별도 데이터라 equipment_ids가 없다.
+  결과에 데이터_보유_기간을 항상 넣어, 데이터가 없는 기간을 물으면 지어내지 않고 없다고 답하게 한다
 """
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List
@@ -22,6 +25,7 @@ import models
 from anomaly import list_drift_alarms, summarize_anomalies
 from oee import calculate_oee
 from quality import calculate_defect_summary
+import machining_quality_query as mqq
 from report import load_daily_reports
 
 MAX_RANGE_DAYS = 30
@@ -105,6 +109,63 @@ TOOL_SPECS: List[dict] = [
                        "급변 이상 건수, 열화 경보 횟수·지속 초)를 날짜 범위로 조회한다. 리포트는 매일 새벽 전날분이 만들어지며, "
                        "만들어지지 않은 날짜는 리포트_없는_날짜로 알려준다 (이 도구는 리포트를 새로 만들지 않는다).",
         "parameters": _date_range_schema(),
+    },
+]
+
+_MACHINING_PROPERTIES = {
+    "start": {
+        "type": "string",
+        "description": "조회 시작 시각. 시간대를 포함한 ISO 8601 (예: 2022-08-24T00:00:00+09:00). 생략하면 처음부터",
+    },
+    "end": {
+        "type": "string",
+        "description": "조회 끝 시각. 시간대를 포함한 ISO 8601. 생략하면 지금까지",
+    },
+    "time_basis": {
+        "type": "string",
+        "enum": ["received", "source"],
+        "description": "start/end를 적용할 시각. 2022년 8월처럼 원본 수집 날짜로 물으면 source, "
+                       "오늘·최근 N시간처럼 지금 기준으로 물으면 received (기본 received)",
+    },
+    "include_serial_conflict": {
+        "type": "boolean",
+        "description": "false면 같은 SerialNo가 합격·불합격으로 두 번 기록된 행(라벨 노이즈 가능)을 뺀다. 기본 true",
+    },
+}
+
+TOOL_SPECS += [
+    {
+        "name": "get_machining_quality_summary",
+        "description": "정밀가공(CNC) 품질 데이터(KAMP 정밀가공 품질보증 데이터셋, 가공 1건마다 합격/불합격 판정)의 "
+                       "기간 내 가공 건수, 불합격 건수, 불합격률(%), KST 일별 불합격률, 합격·불합격 그룹 간 차이가 큰 센서를 조회한다. "
+                       "설비 ID(EQ-...)와 연결되지 않는 별도 데이터다. 센서 값은 단위 미상(설비 원시값)이다. "
+                       "질문에 기간이 없으면 start/end를 생략해 전체 데이터를 조회한다. "
+                       "결과의 데이터_보유_기간 밖을 물으면 데이터가 없다고 답한다.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                **_MACHINING_PROPERTIES,
+                "bucket": {"type": "string", "enum": ["day", "hour"], "description": "불합격률 집계 단위 (KST, 기본 day)"},
+            },
+            "required": [],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "get_machining_quality_records",
+        "description": "정밀가공(CNC) 품질 데이터의 가공 건 목록(SerialNo, 수신 시각, 원본 수집 시각, 판정)을 시각 순으로 조회한다. "
+                       "불합격 건 목록이 필요하면 pass_or_fail=1. 최대 50건까지 돌려주고 전체_건수를 함께 알려준다. "
+                       "센서별 비교는 get_machining_quality_summary로 조회한다.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                **_MACHINING_PROPERTIES,
+                "pass_or_fail": {"type": "integer", "enum": [0, 1], "description": "1=불합격(불량), 0=합격. 생략하면 전체"},
+                "limit": {"type": "integer", "description": "돌려줄 최대 건수 (1~50, 기본 20)"},
+            },
+            "required": [],
+            "additionalProperties": False,
+        },
     },
 ]
 TOOL_NAMES = {spec["name"] for spec in TOOL_SPECS}
@@ -267,6 +328,112 @@ def _get_daily_reports(db: Session, args: dict) -> dict:
     }
 
 
+MAX_MACHINING_RECORDS = 50
+MACHINING_SENSOR_UNIT = "단위 미상(설비 원시값)"
+MACHINING_TOP_SENSORS = 5
+
+
+def _as_int(value: Any):
+    """정수 인자. Gemini는 정수도 1.0처럼 실수로 보낼 수 있어 소수부가 없으면 받는다.
+    None은 그대로, 정수로 볼 수 없는 값은 -1 (호출한 쪽 범위 검증에서 거부)"""
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return value if value is None else -1
+    return value
+
+
+def _parse_machining_args(args: dict) -> dict:
+    start = _parse_time(args["start"], "start") if args.get("start") is not None else None
+    end = _parse_time(args["end"], "end") if args.get("end") is not None else None
+    if start and end and start >= end:
+        raise ToolError("start는 end보다 앞이어야 합니다")
+    time_basis = args.get("time_basis") or "received"
+    if time_basis not in mqq.TIME_BASES:
+        raise ToolError(f"time_basis는 {list(mqq.TIME_BASES)} 중 하나여야 합니다")
+    include = args.get("include_serial_conflict", True)
+    if not isinstance(include, bool):
+        raise ToolError("include_serial_conflict는 true/false여야 합니다")
+    return {"start": start, "end": end, "time_basis": time_basis, "include_serial_conflict": include}
+
+
+def _machining_coverage(db: Session) -> dict:
+    cov = mqq.coverage(db)
+    return {
+        "보이는_전체_건수": cov["count"],
+        # 재생 적재 중 원본 날짜로 물으면 0건이 나오는데, 로컬 모델이 "수집되지 않았을 수 있다"고 얼버무려 이유를 드러낸다
+        "재생_중_아직_도착하지_않은_건수": cov["pending"],
+        "수신_시각_기준": {"처음": cov["received"][0], "마지막": cov["received"][1]},
+        "원본_수집_시각_기준": {"처음": cov["source"][0], "마지막": cov["source"][1]},
+    }
+
+
+def _machining_query_info(q: dict) -> dict:
+    return {
+        "start": q["start"],
+        "end": q["end"],
+        "기준_시각": "원본 수집 시각" if q["time_basis"] == "source" else "수신 시각",
+        "SerialNo_중복_행_포함": q["include_serial_conflict"],
+    }
+
+
+def _pct(part: int, total: int):
+    return round(part / total * 100, 2) if total else None
+
+
+def _get_machining_quality_summary(db: Session, args: dict) -> dict:
+    q = _parse_machining_args(args)
+    bucket = args.get("bucket") or "day"
+    if bucket not in mqq.BUCKETS:
+        raise ToolError(f"bucket은 {list(mqq.BUCKETS)} 중 하나여야 합니다")
+    s = mqq.summarize(db, q["start"], q["end"], bucket, q["include_serial_conflict"], q["time_basis"])
+    return {
+        "조회_조건": _machining_query_info(q),
+        "데이터_보유_기간": _machining_coverage(db),
+        "가공_건수": s["total"],
+        "불합격_건수": s["fail"],
+        "불합격률_퍼센트": _pct(s["fail"], s["total"]),
+        ("일별" if bucket == "day" else "시간별") + "_불합격률": [
+            {"구간_시작": b["bucket_start"], "가공_건수": b["total"], "불합격_건수": b["fail"],
+             "불합격률_퍼센트": _pct(b["fail"], b["total"])}
+            for b in s["buckets"]
+        ],
+        "센서_단위": MACHINING_SENSOR_UNIT,
+        # effect_size = (불합격 평균 - 합격 평균) / 합동 표준편차. qwen3:8b가 부호 때문에 순위를 잘못 매기고 d를 원래 단위
+        # 차이로 말해서(10-13 로컬 확인), 순위·방향을 따로 두고 필드 이름에 "표준편차의 몇 배"인지 드러낸다
+        "합격_불합격_차이가_큰_센서": [
+            {"차이_순위": rank, "센서": c["column"], "불합격_쪽_값": "높음" if c["effect_size"] > 0 else "낮음",
+             "차이_크기_표준편차_배수": abs(c["effect_size"]),
+             "합격_평균_raw": round(c["pass_mean"], 3), "불합격_평균_raw": round(c["fail_mean"], 3)}
+            for rank, c in enumerate(
+                [c for c in s["sensor_comparison"] if c["effect_size"] is not None][:MACHINING_TOP_SENSORS], start=1)
+        ],
+    }
+
+
+def _get_machining_quality_records(db: Session, args: dict) -> dict:
+    q = _parse_machining_args(args)
+    pass_or_fail = _as_int(args.get("pass_or_fail"))
+    if pass_or_fail is not None and pass_or_fail not in (0, 1):
+        raise ToolError("pass_or_fail은 0(합격) 또는 1(불합격)이어야 합니다")
+    limit = _as_int(args.get("limit", 20))
+    if limit is None or not 1 <= limit <= MAX_MACHINING_RECORDS:
+        raise ToolError(f"limit은 1~{MAX_MACHINING_RECORDS} 정수여야 합니다")
+    total, rows = mqq.list_records(db, q["start"], q["end"], pass_or_fail, q["include_serial_conflict"], limit,
+                                   q["time_basis"])
+    return {
+        "조회_조건": {**_machining_query_info(q), "판정": {None: "전체", 0: "합격", 1: "불합격"}[pass_or_fail]},
+        "데이터_보유_기간": _machining_coverage(db),
+        "전체_건수": total,
+        "목록에서_생략된_건수": total - len(rows),
+        "가공_목록": [
+            {"serial_no": r.serial_no, "수신_시각": r.received_at, "원본_수집_시각": r.source_received_at,
+             "판정": "불합격" if r.pass_or_fail == 1 else "합격", "SerialNo_중복": r.is_serial_conflict}
+            for r in rows
+        ],
+    }
+
+
 _HANDLERS = {
     "list_equipment": _list_equipment,
     "get_oee": _get_oee,
@@ -274,6 +441,8 @@ _HANDLERS = {
     "get_anomalies": _get_anomalies,
     "get_drift_alarms": _get_drift_alarms,
     "get_daily_reports": _get_daily_reports,
+    "get_machining_quality_summary": _get_machining_quality_summary,
+    "get_machining_quality_records": _get_machining_quality_records,
 }
 
 

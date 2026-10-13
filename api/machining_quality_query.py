@@ -4,6 +4,8 @@
 - 조회 기준 시각은 received_at. 재생 적재(--replay-start)면 미래 시각 행이 미리 들어 있으므로
   항상 received_at <= 지금 인 행만 보여준다 (end를 지금으로 자른다)
 - 센서 비교는 상수 열을 뺀 FEATURE_COLUMNS만 쓴다
+- time_basis="source"면 원본 수집 시각(source_received_at, 2022-08)으로 기간을 거른다. 재생 적재 중에도
+  "2022-08-24 불합격률"처럼 원본 날짜로 묻는 질문에 답하기 위함 (이때도 아직 도착하지 않은 행은 숨긴다)
 - SerialNo 중복 행(is_serial_conflict)은 원본에서 같은 시각에 0/1이 한 쌍으로 붙은 경우라 라벨 노이즈일 수 있어
   include_serial_conflict=False로 뺄 수 있게 한다 (현재 원본은 불합격 99건이 전부 이 쌍에 속함)
 """
@@ -18,6 +20,13 @@ from machining_quality import CONSTANT_COLUMNS, FEATURE_COLUMNS, KST, SENSOR_COL
 from models import MachiningQualityRecord as R
 
 BUCKETS = ("hour", "day")
+TIME_BASES = ("received", "source")
+
+
+def _time_column(time_basis: str):
+    if time_basis not in TIME_BASES:
+        raise ValueError(f"time_basis는 {TIME_BASES} 중 하나")
+    return R.received_at if time_basis == "received" else R.source_received_at
 
 
 def resolve_range(start: Optional[datetime], end: Optional[datetime]) -> tuple[Optional[datetime], datetime]:
@@ -27,10 +36,14 @@ def resolve_range(start: Optional[datetime], end: Optional[datetime]) -> tuple[O
     return start, end
 
 
-def _filters(start: Optional[datetime], end: datetime, include_serial_conflict: bool, pass_or_fail: Optional[int] = None):
-    conds = [R.received_at <= end]
+def _filters(start: Optional[datetime], end: Optional[datetime], include_serial_conflict: bool,
+             pass_or_fail: Optional[int] = None, time_basis: str = "received"):
+    col = _time_column(time_basis)
+    conds = [R.received_at <= datetime.now(timezone.utc)]
+    if end:
+        conds.append(col <= end)
     if start:
-        conds.append(R.received_at >= start)
+        conds.append(col >= start)
     if not include_serial_conflict:
         conds.append(R.is_serial_conflict.is_(False))
     if pass_or_fail is not None:
@@ -58,11 +71,12 @@ def list_records(
     pass_or_fail: Optional[int],
     include_serial_conflict: bool,
     limit: Optional[int],
+    time_basis: str = "received",
 ) -> tuple[int, list]:
-    """(조건에 맞는 전체 건수, received_at 순 행 목록 - limit이 있으면 앞에서부터 limit건)"""
-    conds = _filters(start, end, include_serial_conflict, pass_or_fail)
+    """(조건에 맞는 전체 건수, 기준 시각 순 행 목록 - limit이 있으면 앞에서부터 limit건)"""
+    conds = _filters(start, end, include_serial_conflict, pass_or_fail, time_basis)
     total = db.query(func.count(R.record_id)).filter(*conds).scalar()
-    query = db.query(R).filter(*conds).order_by(R.received_at, R.record_id)
+    query = db.query(R).filter(*conds).order_by(_time_column(time_basis), R.record_id)
     if limit is not None:
         query = query.limit(limit)
     return int(total), query.all()
@@ -84,13 +98,14 @@ def summarize(
     end: datetime,
     bucket: str,
     include_serial_conflict: bool,
+    time_basis: str = "received",
 ) -> dict:
     if bucket not in BUCKETS:
         raise ValueError(f"bucket은 {BUCKETS} 중 하나")
-    conds = _filters(start, end, include_serial_conflict)
+    conds = _filters(start, end, include_serial_conflict, time_basis=time_basis)
 
     # 기간별 판정 집계 (KST 기준으로 자른 뒤 KST 시각으로 돌려준다)
-    local_bucket = func.date_trunc(bucket, func.timezone("Asia/Seoul", R.received_at)).label("bucket")
+    local_bucket = func.date_trunc(bucket, func.timezone("Asia/Seoul", _time_column(time_basis))).label("bucket")
     bucket_rows = (
         db.query(
             local_bucket,
@@ -152,6 +167,21 @@ def summarize(
         "sensor_comparison": comparison,
         "excluded_constant_columns": list(CONSTANT_COLUMNS),
     }
+
+
+def coverage(db: Session) -> dict:
+    """지금 보이는(도착한) 행의 건수와 기준 시각·원본 시각 범위, 재생 중 아직 도착하지 않은 건수.
+    데이터가 없는 기간을 물었는지(또는 재생이 아직 거기까지 안 왔는지) 판단하는 근거"""
+    row = (
+        db.query(
+            func.count(R.record_id), func.min(R.received_at), func.max(R.received_at),
+            func.min(R.source_received_at), func.max(R.source_received_at),
+        )
+        .filter(R.received_at <= datetime.now(timezone.utc))
+        .one()
+    )
+    pending = db.query(func.count(R.record_id)).filter(R.received_at > datetime.now(timezone.utc)).scalar()
+    return {"count": int(row[0]), "pending": int(pending), "received": (row[1], row[2]), "source": (row[3], row[4])}
 
 
 def csv_columns(include_constant: bool) -> List[str]:

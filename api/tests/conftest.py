@@ -25,6 +25,7 @@ TRACKED_MODELS = {
     models.QualityEvent: "event_ids",
     models.AnomalyResult: "anomaly_result_ids",
     models.DriftAlarm: "drift_alarm_ids",
+    models.MachiningQualityRecord: "machining_record_ids",
 }
 # 복합 기본키(report_date, equipment_id)라 after_insert로 추적하지 않는다 - 리포트 테스트는 전용 과거 날짜를 쓰고 직접 지운다
 
@@ -68,6 +69,7 @@ def _delete_created(created: dict, statuses: dict) -> None:
             created,
         )
         conn.execute(text("DELETE FROM production_log WHERE log_id = ANY(:log_ids)"), created)
+        conn.execute(text("DELETE FROM machining_quality_record WHERE record_id = ANY(:machining_record_ids)"), created)
         for equipment_id, status in statuses.items():
             conn.execute(
                 text("UPDATE equipment SET status = :status WHERE equipment_id = :equipment_id AND status <> :status"),

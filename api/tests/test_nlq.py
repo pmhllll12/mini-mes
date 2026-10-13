@@ -128,6 +128,71 @@ def test_daily_reports_tool_rejects_invalid_dates(db, args, message):
         execute_tool(db, "get_daily_reports", args)
 
 
+# 정밀가공 도구 테스트는 실제 데이터(2022-08)·다른 테스트와 겹치지 않는 2001년 시각을 쓴다 (CI DB에는 실제 데이터가 없음)
+M_START = datetime(2001, 1, 1, tzinfo=KST)
+M_RANGE = {"start": M_START.isoformat(), "end": (M_START + timedelta(days=1)).isoformat()}
+
+
+def _machining_record(db, serial, at, pass_or_fail, received_at=None, conflict=False, speed=100.0):
+    import models
+    from machining_quality import SENSOR_COLUMNS
+    row = models.MachiningQualityRecord(serial_no=serial, source_received_at=at, received_at=received_at or at,
+                                        pass_or_fail=pass_or_fail, is_serial_conflict=conflict,
+                                        **{c: 1.0 for c in SENSOR_COLUMNS.values()})
+    row.spindle_speed_max_raw = speed
+    db.add(row)
+    db.commit()
+
+
+def test_machining_summary_tool_reports_fail_rate_and_coverage(db):
+    for i, (pf, speed) in enumerate([(0, 100.0), (0, 102.0), (0, 98.0), (1, 90.0), (1, 91.0)]):
+        _machining_record(db, f"T-{i}", M_START + timedelta(hours=1, minutes=i), pf, speed=speed)
+    # 재생 적재로 아직 도착하지 않은(미래) 행은 보이지 않아야 한다
+    _machining_record(db, "T-future", M_START + timedelta(hours=2), 1, received_at=datetime.now(KST) + timedelta(days=1))
+
+    out = execute_tool(db, "get_machining_quality_summary", M_RANGE)
+    assert (out["가공_건수"], out["불합격_건수"], out["불합격률_퍼센트"]) == (5, 2, 40.0)
+    assert out["일별_불합격률"][0]["구간_시작"] == M_START.isoformat()
+    assert out["센서_단위"] == "단위 미상(설비 원시값)"
+    top = out["합격_불합격_차이가_큰_센서"][0]
+    assert (top["차이_순위"], top["센서"], top["불합격_쪽_값"]) == (1, "spindle_speed_max_raw", "낮음")
+    assert top["차이_크기_표준편차_배수"] > 0
+    assert out["데이터_보유_기간"]["재생_중_아직_도착하지_않은_건수"] >= 1
+    first = datetime.fromisoformat(out["데이터_보유_기간"]["원본_수집_시각_기준"]["처음"])
+    assert first <= M_START + timedelta(hours=1)
+
+
+def test_machining_tools_filter_by_source_time_and_conflict(db):
+    # 재생 적재: 원본은 2001-01-01, 수신 시각은 2001-06-01로 옮겨진 행
+    shifted = M_START.replace(month=6)
+    _machining_record(db, "S-1", M_START + timedelta(hours=3), 0, received_at=shifted, conflict=True)
+    _machining_record(db, "S-1", M_START + timedelta(hours=3), 1, received_at=shifted, conflict=True)
+
+    by_source = execute_tool(db, "get_machining_quality_summary", {**M_RANGE, "time_basis": "source"})
+    by_received = execute_tool(db, "get_machining_quality_summary", M_RANGE)
+    assert (by_source["가공_건수"], by_received["가공_건수"]) == (2, 0)
+
+    records = execute_tool(db, "get_machining_quality_records",
+                           {**M_RANGE, "time_basis": "source", "pass_or_fail": 1.0, "limit": 5.0})
+    assert records["전체_건수"] == 1 and records["가공_목록"][0]["판정"] == "불합격"
+    assert records["가공_목록"][0]["수신_시각"] == shifted.isoformat()
+    no_conflict = execute_tool(db, "get_machining_quality_records",
+                               {**M_RANGE, "time_basis": "source", "include_serial_conflict": False})
+    assert no_conflict["전체_건수"] == 0
+
+
+@pytest.mark.parametrize("args, message", [
+    ({"start": "2001-01-01"}, "시간대"),
+    ({"time_basis": "utc"}, "time_basis"),
+    ({"limit": 51}, "limit"),
+    ({"pass_or_fail": 2}, "pass_or_fail"),
+    ({"include_serial_conflict": "no"}, "include_serial_conflict"),
+])
+def test_machining_records_tool_rejects_invalid_arguments(db, args, message):
+    with pytest.raises(ToolError, match=message):
+        execute_tool(db, "get_machining_quality_records", args)
+
+
 def test_unknown_tool_is_rejected(db):
     with pytest.raises(ToolError, match="알 수 없는 도구"):
         execute_tool(db, "drop_table", {})
