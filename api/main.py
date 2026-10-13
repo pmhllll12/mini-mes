@@ -20,6 +20,7 @@ import schemas
 from oee import calculate_oee
 from quality import calculate_defect_summary
 from anomaly import DRIFT_ALARM_CSV_COLUMNS, list_drift_alarms, summarize_anomalies
+import machining_quality_query as mqq
 from report import REPORT_COLUMNS, build_daily_report, load_daily_reports, save_daily_report, yesterday_kst
 from nlq_providers import ClaudeProvider, GeminiProvider, NLQProviderError, OpenAICompatProvider, user_message
 from nlq_quota import DailyQuota
@@ -280,6 +281,62 @@ def get_drift_alarms(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=drift_alarms_{start.date()}_{end.date()}.csv"},
     )
+
+
+# ---------- 정밀가공 품질 (KAMP 데이터셋, 설비 테이블과 별도 도메인) ----------
+
+@app.get("/machining-quality", response_model=schemas.MachiningQualityListOut)
+def get_machining_quality(
+    start: Optional[datetime] = Query(None, description="received_at 시작 (생략 시 처음부터)"),
+    end: Optional[datetime] = Query(None, description="received_at 끝 (생략 시 지금, 지금보다 늦으면 지금으로 자름)"),
+    pass_or_fail: Optional[int] = Query(None, ge=0, le=1, description="1=불합격(불량), 0=합격, 생략 시 전체"),
+    include_serial_conflict: bool = Query(True, description="false면 SerialNo 중복 행(라벨 노이즈 가능성) 제외"),
+    include_constant: bool = Query(False, description="true면 전 행 같은 값인 센서 열 13개도 포함"),
+    limit: int = Query(500, ge=1, le=5000, description="json 최대 건수 (csv는 제한 없음)"),
+    format: str = Query("json", pattern="^(json|csv)$", description="csv면 바로 내려받기"),
+    db: Session = Depends(get_db),
+):
+    """가공 1건 단위 센서 요약 + 합격/불합격 판정. 재생 적재 중이면 아직 도착하지 않은(미래 시각) 행은 보이지 않는다"""
+    start, end = mqq.resolve_range(start, end)
+    if start and start > end:
+        raise HTTPException(status_code=400, detail="start가 end(또는 지금)보다 늦습니다")
+
+    total, rows = mqq.list_records(
+        db, start, end, pass_or_fail, include_serial_conflict, limit if format == "json" else None
+    )
+    if format == "json":
+        records = [mqq.record_to_dict(r, include_constant) for r in rows]
+        return {"total": total, "returned": len(records), "truncated": total > len(records), "records": records}
+
+    columns = mqq.csv_columns(include_constant)
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(columns)
+    for r in rows:
+        writer.writerow([
+            v.isoformat() if isinstance(v, datetime) else v for v in (getattr(r, c) for c in columns)
+        ])
+    buffer.seek(0)
+    return StreamingResponse(
+        buffer,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=machining_quality_{end.date()}.csv"},
+    )
+
+
+@app.get("/machining-quality/summary", response_model=schemas.MachiningQualitySummaryOut)
+def get_machining_quality_summary(
+    start: Optional[datetime] = Query(None, description="received_at 시작 (생략 시 처음부터)"),
+    end: Optional[datetime] = Query(None, description="received_at 끝 (생략 시 지금)"),
+    bucket: str = Query("day", pattern="^(hour|day)$", description="불합격률 집계 단위 (KST)"),
+    include_serial_conflict: bool = Query(True, description="false면 SerialNo 중복 행 제외"),
+    db: Session = Depends(get_db),
+):
+    """기간 전체·시간/일별 불합격률과 합격/불합격 그룹의 센서 평균 비교 (상수 열 제외, 차이가 큰 순)"""
+    start, end = mqq.resolve_range(start, end)
+    if start and start > end:
+        raise HTTPException(status_code=400, detail="start가 end(또는 지금)보다 늦습니다")
+    return mqq.summarize(db, start, end, bucket, include_serial_conflict)
 
 
 # ---------- 자연어 질의 (LLM function calling) ----------

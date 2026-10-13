@@ -1,7 +1,8 @@
 from sqlalchemy import (
-    Column, String, Integer, Numeric, Boolean, Date, TIMESTAMP, BigInteger, ForeignKey, text
+    Column, String, Integer, Numeric, Boolean, Date, TIMESTAMP, BigInteger, ForeignKey, Float, SmallInteger, text
 )
 from database import Base
+from machining_quality import SENSOR_COLUMNS
 
 
 class Equipment(Base):
@@ -77,3 +78,21 @@ class DriftAlarm(Base):
     raised_score = Column(Numeric(10, 4), nullable=False)
     threshold = Column(Numeric(10, 4), nullable=False)
     cleared_ts = Column(TIMESTAMP(timezone=True))
+
+
+class MachiningQualityRecord(Base):
+    """정밀가공 품질보증 데이터셋(KAMP) 1건. 설비 테이블과 연결하지 않는 별도 도메인 (db/schema.sql 주석 참고)"""
+    __tablename__ = "machining_quality_record"
+
+    record_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    serial_no = Column(String(30), nullable=False)
+    source_received_at = Column(TIMESTAMP(timezone=True), nullable=False)
+    received_at = Column(TIMESTAMP(timezone=True), nullable=False)
+    pass_or_fail = Column(SmallInteger, nullable=False)
+    is_serial_conflict = Column(Boolean, nullable=False, default=False)
+    loaded_at = Column(TIMESTAMP(timezone=True), server_default=text("now()"), nullable=False)
+
+
+# 센서 40열은 api/machining_quality.py의 대응표 그대로 (전부 단위 미상 원시값)
+for _column in SENSOR_COLUMNS.values():
+    setattr(MachiningQualityRecord, _column, Column(Float, nullable=False))

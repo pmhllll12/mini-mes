@@ -141,3 +141,49 @@ class QueryQuotaOut(BaseModel):
     used: int
     remaining: Optional[int]
     resets_at: datetime
+
+
+class MachiningQualityRecordOut(BaseModel):
+    """정밀가공 품질 기록 1건 (KAMP 데이터셋). sensors 값은 단위 미상 원시값 (_raw)"""
+    record_id: int
+    serial_no: str
+    received_at: datetime           # 조회 기준 시각 (재생 적재면 이동한 시각)
+    source_received_at: datetime    # 원본 ReceivedDateTime (KST로 간주)
+    pass_or_fail: int               # 1=불합격(불량), 0=합격
+    is_serial_conflict: bool        # 같은 SerialNo 행이 둘 이상 (라벨 노이즈 가능성)
+    sensors: Dict[str, float]
+
+
+class MachiningQualityListOut(BaseModel):
+    total: int                      # 조건에 맞는 전체 건수
+    returned: int
+    truncated: bool                 # limit 때문에 일부만 돌려줬는지
+    records: List[MachiningQualityRecordOut]
+
+
+class MachiningQualityBucket(BaseModel):
+    bucket_start: datetime          # KST 기준 시/일 시작
+    total: int
+    fail: int
+    fail_rate: Optional[float]
+
+
+class MachiningSensorComparison(BaseModel):
+    """합격/불합격 그룹의 센서 평균 비교. effect_size = (불합격 평균 - 합격 평균) / 합동 표준편차"""
+    column: str
+    pass_mean: Optional[float]
+    fail_mean: Optional[float]
+    effect_size: Optional[float]
+
+
+class MachiningQualitySummaryOut(BaseModel):
+    start: Optional[datetime]
+    end: datetime
+    bucket: Literal["hour", "day"]
+    include_serial_conflict: bool
+    total: int
+    fail: int
+    fail_rate: Optional[float]
+    buckets: List[MachiningQualityBucket]
+    sensor_comparison: List[MachiningSensorComparison]   # 차이(|effect_size|)가 큰 순
+    excluded_constant_columns: List[str]
