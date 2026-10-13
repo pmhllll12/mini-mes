@@ -184,6 +184,19 @@ def coverage(db: Session) -> dict:
     return {"count": int(row[0]), "pending": int(pending), "received": (row[1], row[2]), "source": (row[3], row[4])}
 
 
+def count_by_result(db: Session, start: datetime, end: datetime) -> tuple[int, int]:
+    """received_at이 (start, end]인 행의 (합격 건수, 불합격 건수). 메트릭용이라 센서 통계 없이 건수만"""
+    row = (
+        db.query(
+            func.count(R.record_id).filter(R.pass_or_fail == 0),
+            func.count(R.record_id).filter(R.pass_or_fail == 1),
+        )
+        .filter(R.received_at > start, R.received_at <= end)
+        .one()
+    )
+    return int(row[0]), int(row[1])
+
+
 def csv_columns(include_constant: bool) -> List[str]:
     sensors = list(SENSOR_COLUMNS.values()) if include_constant else list(FEATURE_COLUMNS)
     return ["record_id", "serial_no", "received_at", "source_received_at", "pass_or_fail", "is_serial_conflict", *sensors]

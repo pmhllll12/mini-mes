@@ -304,6 +304,51 @@
           "refId": "A"
         }
       ]
+    },
+    {
+      "id": 12,
+      "title": "정밀가공 불합격률 (최근 1시간, KAMP 재생)",
+      "description": "KAMP 정밀가공 품질보증 데이터셋을 현재 시각 기준으로 재생 적재(--replay-start)했을 때, 최근 1시간 동안 도착한 가공 건의 불합격률. 설비(EQ-...)와 연결되지 않은 실제 공개 데이터. 원본 시각(2022-08)으로 적재된 상태에서는 도착 건이 없어 비어 있다.",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 48 },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "min": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+          "expr": "mes_machining_fail_rate",
+          "legendFormat": "불합격률",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "정밀가공 도착 건수 (최근 1시간)",
+      "description": "재생 적재로 최근 1시간 동안 도착한 가공 건수 (pass=합격, fail=불합격).",
+      "type": "bargauge",
+      "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 48 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0, "decimals": 0 },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "mini-mes-prometheus" },
+          "expr": "mes_machining_records",
+          "legendFormat": "{{result}}",
+          "refId": "A"
+        }
+      ]
     }
   ]
 }
