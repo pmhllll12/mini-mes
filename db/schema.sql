@@ -90,3 +90,60 @@ CREATE TABLE IF NOT EXISTS daily_report (
     generated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (report_date, equipment_id)
 );
+
+-- 정밀가공 품질보증 데이터셋(KAMP, 2022-08-23~25 가공 1,085건). 기존 설비 테이블과 연결하지 않는 별도 도메인
+-- 적재: scripts/load_machining_quality.py (원본 CSV는 커밋하지 않음 - README "사용 데이터")
+-- 센서 값은 단위 미상(설비 원시값)이라 _raw. 원본 컬럼명 대응은 api/machining_quality.py
+CREATE TABLE IF NOT EXISTS machining_quality_record (
+    record_id          BIGSERIAL PRIMARY KEY,      -- SerialNo가 0/1로 두 번 나오는 경우가 있어 대리 키 사용
+    serial_no          VARCHAR(30) NOT NULL,
+    source_received_at TIMESTAMPTZ NOT NULL,       -- 원본 ReceivedDateTime (KST로 간주)
+    received_at        TIMESTAMPTZ NOT NULL,       -- 조회 기준 시각. 기본은 원본과 같고, 재생(--replay-start) 적재면 이동한 시각
+    pass_or_fail       SMALLINT NOT NULL CHECK (pass_or_fail IN (0, 1)),  -- 1=불합격(불량), 0=합격
+    is_serial_conflict BOOLEAN NOT NULL DEFAULT false,  -- 같은 SerialNo 행이 둘 이상 (원본은 같은 시각에 0/1 한 쌍 - 라벨 노이즈 가능성)
+    spindle_speed_max_raw        DOUBLE PRECISION NOT NULL,
+    servo_current_x_max_raw      DOUBLE PRECISION NOT NULL,
+    servo_current_z1_max_raw     DOUBLE PRECISION NOT NULL,
+    servo_current_z2_max_raw     DOUBLE PRECISION NOT NULL,
+    servo_current_z3_max_raw     DOUBLE PRECISION NOT NULL,
+    servo_load_x_max_raw         DOUBLE PRECISION NOT NULL,
+    servo_load_z1_max_raw        DOUBLE PRECISION NOT NULL,
+    servo_load_z2_max_raw        DOUBLE PRECISION NOT NULL,
+    servo_load_z3_max_raw        DOUBLE PRECISION NOT NULL,
+    spindle_speed_mean_raw       DOUBLE PRECISION NOT NULL,
+    servo_current_x_mean_raw     DOUBLE PRECISION NOT NULL,
+    servo_current_z1_mean_raw    DOUBLE PRECISION NOT NULL,
+    servo_current_z2_mean_raw    DOUBLE PRECISION NOT NULL,
+    servo_current_z3_mean_raw    DOUBLE PRECISION NOT NULL,
+    servo_load_x_mean_raw        DOUBLE PRECISION NOT NULL,
+    servo_load_z1_mean_raw       DOUBLE PRECISION NOT NULL,
+    servo_load_z2_mean_raw       DOUBLE PRECISION NOT NULL,
+    servo_load_z3_mean_raw       DOUBLE PRECISION NOT NULL,
+    spindle_speed_min_raw        DOUBLE PRECISION NOT NULL,
+    servo_current_x_min_raw      DOUBLE PRECISION NOT NULL,
+    servo_current_z1_min_raw     DOUBLE PRECISION NOT NULL,
+    servo_current_z2_min_raw     DOUBLE PRECISION NOT NULL,
+    servo_current_z3_min_raw     DOUBLE PRECISION NOT NULL,
+    servo_load_x_min_raw         DOUBLE PRECISION NOT NULL,
+    servo_load_z1_min_raw        DOUBLE PRECISION NOT NULL,
+    servo_load_z2_min_raw        DOUBLE PRECISION NOT NULL,
+    servo_load_z3_min_raw        DOUBLE PRECISION NOT NULL,
+    spindle_speed_std_raw        DOUBLE PRECISION NOT NULL,
+    servo_current_x_std_raw      DOUBLE PRECISION NOT NULL,
+    servo_current_z1_std_raw     DOUBLE PRECISION NOT NULL,
+    servo_current_z2_std_raw     DOUBLE PRECISION NOT NULL,
+    servo_current_z3_std_raw     DOUBLE PRECISION NOT NULL,
+    servo_load_x_std_raw         DOUBLE PRECISION NOT NULL,
+    servo_load_z1_std_raw        DOUBLE PRECISION NOT NULL,
+    servo_load_z2_std_raw        DOUBLE PRECISION NOT NULL,
+    servo_load_z3_std_raw        DOUBLE PRECISION NOT NULL,
+    spindle_load_max_raw         DOUBLE PRECISION NOT NULL,
+    spindle_load_mean_raw        DOUBLE PRECISION NOT NULL,
+    spindle_load_min_raw         DOUBLE PRECISION NOT NULL,
+    spindle_load_std_raw         DOUBLE PRECISION NOT NULL,
+    loaded_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (serial_no, source_received_at, pass_or_fail)  -- 재적재 시 중복 방지 (upsert 기준)
+);
+
+CREATE INDEX IF NOT EXISTS idx_machining_quality_record_received_at
+    ON machining_quality_record (received_at);
