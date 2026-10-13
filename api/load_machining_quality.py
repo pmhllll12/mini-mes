@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from sqlalchemy import create_engine, text
 
 import machining_quality as mq
+import models
 
 DEFAULT_CSV = "data/raw/precision_machining_quality_dataset.csv"
 DEFAULT_DATABASE_URL = "postgresql://mes_user:mes_password@localhost:5432/mini_mes"
@@ -108,6 +109,9 @@ def main() -> None:
     args = parser.parse_args()
 
     engine = create_engine(os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL), pool_pre_ping=True)
+    # 운영 DB에는 schema.sql이 다시 실행되지 않고, 새 api 파드의 create_all보다 이 Job이 먼저 돌 수 있다
+    # (이미지 태그가 latest 그대로면 helm upgrade가 api 파드를 바꾸지 않음) -> 같은 ORM 정의로 없을 때만 만든다
+    models.MachiningQualityRecord.__table__.create(engine, checkfirst=True)
     if args.if_empty:
         with engine.connect() as conn:
             existing = conn.execute(text("SELECT count(*) FROM machining_quality_record")).scalar_one()
