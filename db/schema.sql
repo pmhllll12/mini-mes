@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS daily_report (
 );
 
 -- 정밀가공 품질보증 데이터셋(KAMP, 2022-08-23~25 가공 1,085건). 기존 설비 테이블과 연결하지 않는 별도 도메인
--- 적재: scripts/load_machining_quality.py (원본 CSV는 커밋하지 않음 - README "사용 데이터")
+-- 적재: api/load_machining_quality.py (원본 CSV는 커밋하지 않음 - README "사용 데이터")
 -- 센서 값은 단위 미상(설비 원시값)이라 _raw. 원본 컬럼명 대응은 api/machining_quality.py
 CREATE TABLE IF NOT EXISTS machining_quality_record (
     record_id          BIGSERIAL PRIMARY KEY,      -- SerialNo가 0/1로 두 번 나오는 경우가 있어 대리 키 사용

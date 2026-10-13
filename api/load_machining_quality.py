@@ -5,25 +5,21 @@
 --replay-start를 주면 원본 첫 행이 그 시각이 되도록 received_at 전체를 같은 간격만큼 이동한다 (원본 시각은 source_received_at에 그대로).
 예) 라이브 데모: --replay-start now -> 원본 간격 그대로 앞으로 약 3일에 걸쳐 received_at이 현재 시각을 지나간다.
 
-실행 (compose, api 이미지 사용):
-  docker compose run --rm -v ./scripts:/scripts:ro -v ./data:/data:ro api \
-      python /scripts/load_machining_quality.py --csv /data/raw/precision_machining_quality_dataset.csv
+--if-empty면 테이블에 행이 있을 때 아무것도 하지 않는다 (Helm 설치·업그레이드 훅용 - 배포할 때마다 재생이 처음으로 돌아가지 않게).
+
+api 이미지에 들어 있어 클러스터에서도 같은 스크립트를 쓴다 (차트 machiningData: 훅 Job + 재생 CronJob).
+실행 (compose, api 이미지 사용 - 이미지를 다시 빌드한 뒤):
+  docker compose run --rm -v ./data:/data:ro api \
+      python load_machining_quality.py --csv /data/raw/precision_machining_quality_dataset.csv
 """
 import argparse
 import csv
 import os
-import sys
 from datetime import datetime, timezone
-from pathlib import Path
 
 from sqlalchemy import create_engine, text
 
-# api/ 모듈(컬럼 대응)을 쓴다 - 저장소에서 직접 실행하면 ../api, api 컨테이너 안에서는 /app
-for candidate in (Path(__file__).resolve().parent.parent / "api", Path("/app")):
-    if (candidate / "machining_quality.py").exists():
-        sys.path.insert(0, str(candidate))
-        break
-import machining_quality as mq  # noqa: E402
+import machining_quality as mq
 
 DEFAULT_CSV = "data/raw/precision_machining_quality_dataset.csv"
 DEFAULT_DATABASE_URL = "postgresql://mes_user:mes_password@localhost:5432/mini_mes"
@@ -108,7 +104,16 @@ def main() -> None:
         "--replay-start", default=None,
         help="received_at을 이동할 시작 시각 (now 또는 ISO, 시간대 없으면 KST). 생략하면 원본 시각 그대로",
     )
+    parser.add_argument("--if-empty", action="store_true", help="테이블에 행이 이미 있으면 적재하지 않고 끝낸다")
     args = parser.parse_args()
+
+    engine = create_engine(os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL), pool_pre_ping=True)
+    if args.if_empty:
+        with engine.connect() as conn:
+            existing = conn.execute(text("SELECT count(*) FROM machining_quality_record")).scalar_one()
+        if existing:
+            print(f"--if-empty: 이미 {existing}행이 있어 적재하지 않음")
+            return
 
     rows = read_rows(args.csv, args.encoding)
     if not rows:
@@ -121,7 +126,6 @@ def main() -> None:
     print(f"CSV {args.csv}: {len(rows)}행, 원본 {src[0].isoformat()} ~ {src[-1].isoformat()}")
     print(f"received_at {rec[0].astimezone(mq.KST).isoformat()} ~ {rec[-1].astimezone(mq.KST).isoformat()}")
 
-    engine = create_engine(os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL), pool_pre_ping=True)
     result = load(engine, rows)
     print(
         f"적재 전 {result['before']}행 -> 적재 후 {result['after']}행 "

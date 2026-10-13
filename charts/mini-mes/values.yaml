@@ -25,7 +25,7 @@ nlq:
 # 외부 공개 (K3s 기본 Traefik + cert-manager). 기본 꺼짐 - 로컬 검증은 port-forward
 # 켜면 https://<host>/ 채팅·API, /grafana 대시보드(익명 Viewer). Prometheus는 공개하지 않음
 #   공개: GET·HEAD(/metrics 제외), POST /query(IP당 rateLimit + nlq.dailyLimit)
-#   잠금: 그 밖의 요청(데이터 쓰기 POST, /metrics)은 basic-auth
+#   잠금: 그 밖의 요청(데이터 쓰기 POST, /metrics, 정밀가공 목록 /machining-quality - KAMP 원본 재배포 방지)은 basic-auth
 # 필요한 것: cert-manager와 ClusterIssuer(infra/k3s/cluster-issuers.yaml), basic-auth Secret(키 users, htpasswd 형식)
 #   kubectl create secret generic <release>-basic-auth --from-literal=users="admin:$(openssl passwd -apr1 ...)"
 ingress:
@@ -100,3 +100,18 @@ monitoring:
     # Secret이 없으면 규칙은 평가·표시되고 발송만 실패
     alerting:
       existingSecret: ""   # 비우면 "<release>-alerting"
+
+# 정밀가공 품질 데이터(KAMP 정밀가공 품질보증 AI 데이터셋) 적재 - 기본 꺼짐
+# CSV는 라이선스상 저장소·이미지에 넣지 않는다. 미리 ConfigMap으로 올린다 (deploy.sh가 data/raw/에 파일이 있으면 자동으로 만듦)
+#   kubectl create configmap <release>-machining-data --from-file=data/raw/precision_machining_quality_dataset.csv
+# ConfigMap이 없으면 Job/CronJob은 적재를 건너뛰고 성공으로 끝난다
+machiningData:
+  enabled: false
+  existingConfigMap: ""   # 비우면 "<release>-machining-data"
+  fileName: precision_machining_quality_dataset.csv
+  # true면 received_at을 적재 시각부터 원본 간격대로 펼친다 (원본 약 55시간 분량이 실시간으로 "도착"). false면 원본 시각(2022-08) 그대로
+  replay: true
+  # 재생 재시작 주기. 원본이 03:14 KST에 시작하므로 03:00에 맞추면 시각대가 원본과 비슷하다
+  # 3일마다 - 재생이 끝난 뒤(약 55시간) 다음 재시작까지 약 17시간은 새로 도착하는 건이 없다
+  schedule: "0 3 */3 * *"
+  timeZone: Asia/Seoul

@@ -40,6 +40,13 @@ if [[ -f "$ROOT/.env" ]]; then
   fi
 fi
 
+# 정밀가공 품질 데이터(KAMP) CSV: 라이선스상 저장소에 없으므로 로컬 data/raw/에 있을 때만 ConfigMap으로 (없으면 적재 Job이 건너뜀)
+MACHINING_CSV="$ROOT/data/raw/precision_machining_quality_dataset.csv"
+if [[ -f "$MACHINING_CSV" ]]; then
+  "${KUBECTL[@]}" create configmap mini-mes-machining-data --from-file="$MACHINING_CSV" \
+    --dry-run=client -o yaml | "${KUBECTL[@]}" apply --server-side -f -
+fi
+
 # 외부 공개 준비: Traefik(클라이언트 IP 보존) → cert-manager → ClusterIssuer → basic-auth Secret
 "${KUBECTL[@]}" apply -f "$ROOT/infra/k3s/traefik-config.yaml"
 "${HELM[@]}" repo add jetstack https://charts.jetstack.io --force-update >/dev/null

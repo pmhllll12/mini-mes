@@ -106,14 +106,15 @@ spec:
       services:
         - name: {{ $fullname }}-api
           port: {{ .Values.api.service.port }}
-    # 조회(채팅 화면, /docs, OEE·이상탐지 등) - 공개. /metrics는 아래 잠금 규칙으로
-    - match: {{ printf "%s && (Method(`GET`) || Method(`HEAD`)) && !PathPrefix(`/metrics`)" $hostRule | quote }}
+    # 조회(채팅 화면, /docs, OEE·이상탐지 등) - 공개. /metrics와 정밀가공 목록(/machining-quality)은 아래 잠금 규칙으로
+    #   정밀가공 목록은 KAMP 데이터 전체를 CSV로 내려받을 수 있어 잠근다 (원본 재배포 방지). 집계(/machining-quality/summary)는 공개
+    - match: {{ printf "%s && (Method(`GET`) || Method(`HEAD`)) && !PathPrefix(`/metrics`) && !Path(`/machining-quality`)" $hostRule | quote }}
       kind: Rule
       priority: 80
       services:
         - name: {{ $fullname }}-api
           port: {{ .Values.api.service.port }}
-    # 나머지(생산실적·품질 이벤트 등록, 리포트 재생성, /metrics) - basic-auth
+    # 나머지(생산실적·품질 이벤트 등록, 리포트 재생성, /metrics, 정밀가공 목록) - basic-auth
     - match: {{ $hostRule | quote }}
       kind: Rule
       priority: 1

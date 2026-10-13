@@ -1,5 +1,6 @@
 from sqlalchemy import (
-    Column, String, Integer, Numeric, Boolean, Date, TIMESTAMP, BigInteger, ForeignKey, Float, SmallInteger, text
+    Column, String, Integer, Numeric, Boolean, Date, TIMESTAMP, BigInteger, ForeignKey, Float, SmallInteger, text,
+    CheckConstraint, Index, UniqueConstraint,
 )
 from database import Base
 from machining_quality import SENSOR_COLUMNS
@@ -83,13 +84,20 @@ class DriftAlarm(Base):
 class MachiningQualityRecord(Base):
     """정밀가공 품질보증 데이터셋(KAMP) 1건. 설비 테이블과 연결하지 않는 별도 도메인 (db/schema.sql 주석 참고)"""
     __tablename__ = "machining_quality_record"
+    # schema.sql과 같은 제약·인덱스. 이미 운영 중인 DB(schema.sql이 다시 실행되지 않음)에서는 api 시작 시 create_all이
+    # 이 테이블을 처음 만드는데, UNIQUE가 빠지면 적재 스크립트의 upsert(ON CONFLICT)가 실패한다
+    __table_args__ = (
+        UniqueConstraint("serial_no", "source_received_at", "pass_or_fail"),
+        CheckConstraint("pass_or_fail IN (0, 1)"),
+        Index("idx_machining_quality_record_received_at", "received_at"),
+    )
 
     record_id = Column(BigInteger, primary_key=True, autoincrement=True)
     serial_no = Column(String(30), nullable=False)
     source_received_at = Column(TIMESTAMP(timezone=True), nullable=False)
     received_at = Column(TIMESTAMP(timezone=True), nullable=False)
     pass_or_fail = Column(SmallInteger, nullable=False)
-    is_serial_conflict = Column(Boolean, nullable=False, default=False)
+    is_serial_conflict = Column(Boolean, nullable=False, server_default=text("false"))
     loaded_at = Column(TIMESTAMP(timezone=True), server_default=text("now()"), nullable=False)
 
 

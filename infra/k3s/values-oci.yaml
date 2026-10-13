@@ -25,6 +25,10 @@ nlq:
 simulator:
   enabled: true
 
+# 정밀가공 품질 데이터(KAMP) - 재생 적재로 라이브 데모에서 실시간으로 "도착"하게. CSV ConfigMap은 deploy.sh가 만든다
+machiningData:
+  enabled: true
+
 # 외부 공개 - https://mes.pmhllll12.cloud 는 Cloudflare Tunnel(infra/k3s/cloudflared.yaml)로 연다
 # 보안 목록은 SSH만 열어 두고, 클러스터 안의 cloudflared가 Cloudflare로 나가는 연결만 만든다
 # basic-auth Secret은 deploy.sh가 MES_ADMIN_PASSWORD로 만든다
