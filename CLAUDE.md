@@ -13,6 +13,7 @@ FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana, GitHub 
 - evaluate/nlq_eval.py + nlq_questions.json : 자연어 질의 평가(도구 선택·인자·근거·단위·설비 언급(비교 질문은 누락도)·필드 나열·언어·안내 문구, --only로 일부만, --out에 도구 결과까지 저장 → evaluate/results/에 두면 gitignore, 채점 규칙을 바꾼 뒤 재채점용). 실제 LLM 호출이라 비용·무료 한도 소모 → 실행 전 사용자 확인
 - evaluate/drift_alarm_eval.py : 열화 경보 정책을 라벨 실행분에 오프라인 재생(워커의 DriftAlarm·모델 그대로)해 에피소드 지표 비교 (--policy 이름=raise/clear[,k=,h=,clear_z=] 여러 개, anomaly-worker 이미지에서 실행, 작업 트리 코드로 돌리려면 -v $PWD/anomaly-worker:/app)
 - evaluate/machining_anomaly_eval.py : 정밀가공(KAMP)에 워커 v2 모델을 오프라인 적용(DB 기록 없음). 학습=중복 아닌 합격, 평가 이상=쌍의 불합격, 쌍의 합격 행 포함/제외 비교 + 쌍 비교 지표, 시드 반복. anomaly-worker 이미지에서 -v $PWD/api:/api:ro 마운트. 10-13 결과 AUC 약 0.59(비지도로는 거의 못 잡음)
+- evaluate/machining_supervised_eval.py : 정밀가공 합격/불합격 지도 학습(로지스틱·랜덤 포레스트, balanced, 확률 0.5 고정) 오프라인 평가. 쌍의 두 행은 같은 쪽(StratifiedGroupKFold, 시간 순 분할), 쌍 비교·쌍의 합격 오탐률·중복 판별 대조 실험으로 "중복 기록 학습" 여부 확인. 10-13: AUC 0.99+, 대조 AUC 약 0.5, 깊이 2 트리도 F1 0.92(라벨이 스핀들 부하로 매겨졌을 가능성)
 - evaluate/evaluate.py : 시뮬레이터 라벨과 anomaly_result를 (equipment_id, ts)로 매칭해 precision/recall/F1 계산 (anomaly-worker 이미지 안에서 실행). --score-with DIR이면 그 모델로 직접 채점(DB 기록 없음, 모델 비교용), 유형별 recall 출력
 - tools/demo-video/ : 공개 데모 시연 영상 자동 녹화 (record.mjs Playwright 시나리오·한국어 자막, rec.sh가 Xvfb 위 ffmpeg x11grab으로 1080p 녹화, MOCK=1이면 /query 가짜 응답). 실제 녹화는 데모 하루 질문 2개 + Gemini 한도 사용 → 실행 전 사용자 확인
 - db/schema.sql : 테이블 정의 + 설비 시드 3개
