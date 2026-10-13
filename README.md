@@ -4,6 +4,7 @@
 Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단계적으로 고도화하며 만들고 있습니다.
 
 > **현재 상태:** 7주 로드맵 완료 (핵심 API + 설비 시뮬레이터, 불량 이력 연결, Prometheus/Grafana 모니터링·Discord 알림, GitHub Actions CI, Helm 차트 + k3d 로컬 검증, 이상탐지 워커 + 가상 데이터 기준 성능 평가, 자연어 질의 API — Gemini 13/13 통과, Claude 미평가, 예약 리포트).
+> **실제 공개 데이터 연동 (2026-10-13):** 설비 시뮬레이터와 별도로 KAMP "정밀가공 품질보증 AI 데이터셋"(CNC 가공 1,085건, 합격/불합격 판정)을 적재해 조회 API·자연어 질의·Grafana에서 다룹니다 (아래 "사용 데이터").
 > **배포 상태:** **https://mes.pmhllll12.cloud** 에서 운영 중입니다 (2026-10-02~). Oracle Cloud 상시 무료 ARM VM(오사카, Terraform으로 생성) 위 K3s에 Helm 차트로 배포했고, 포트를 열지 않고 Cloudflare Tunnel로 공개합니다. VM 재고를 기다리는 동안에는 같은 구성을 개인 PC k3d에서 임시로 공개했습니다.
 > **시연 영상 (1분 42초):** https://youtu.be/lURO3deVYwU — 자연어 질의 채팅(근거 표시)·Grafana 대시보드·API 문서를 실제 서버에서 녹화 (2026-10-02, `tools/demo-video/`로 자동 녹화)
 
@@ -49,6 +50,8 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 | GET | `/reports/daily?equipment_ids=&start_date=&end_date=&format=json\|csv` | 저장된 일일 리포트 조회 (기본 최근 7일): 설비별 가동률·양품률·OEE, 생산·불량 수량, 최다 불량 유형(건수·수량), 급변 이상 건수, 열화 경보 횟수·시간 |
 | GET | `/drift-alarms?equipment_ids=&hours=&format=json\|csv` | 기간과 겹치는 열화 경보 이력 (시작·해제 시각, 진행 중 여부, 지속 시간, 시작 점수), `format=csv`면 바로 내려받기 |
 | GET | `/export/production-logs?equipment_ids=&start=&end=` | 생산실적 CSV 다운로드 |
+| GET | `/machining-quality?start=&end=&pass_or_fail=&include_serial_conflict=&include_constant=&limit=&format=json\|csv` | 정밀가공 품질(KAMP) 가공 건 목록, `format=csv`면 바로 내려받기. 상수 열 13개는 기본 제외. 공개 서버에서는 basic-auth (원본 재배포 방지) |
+| GET | `/machining-quality/summary?start=&end=&bucket=hour\|day&include_serial_conflict=` | 정밀가공 불합격률(전체·KST 시/일별), 합격·불합격 그룹 간 차이가 큰 센서(효과크기 순) |
 | POST | `/query` | 자연어 질의 — LLM이 읽기 전용 도구를 호출해 답변 + 근거(호출한 도구·인자·결과) 반환 (API 키 필요) |
 
 ## 설비 status 규칙
@@ -62,6 +65,35 @@ OEE = 가동률 × 양품률 (성능 가동률은 제외한 단순화 버전)
 - 실제 가동시간 = 사이클타임(제품 1개당 초) × 생산 수량. 구간별 계획시간을 상한으로 적용
 - 가동률 = 실제 가동시간 합 / 계획시간 합 (항상 0~1)
 - 양품률 = 양품 수 / (양품 + 불량)
+
+## 사용 데이터
+
+| 데이터 | 출처 | 기간 | 용도 |
+|---|---|---|---|
+| 설비 생산실적·품질 이벤트 (EQ-001~003) | `simulator/simulate.py`가 만든 **가상 데이터** | 실행 시점 | OEE·불량 집계·이상탐지 |
+| 정밀가공 품질 (`machining_quality_record`) | [KAMP 인공지능 중소벤처 제조플랫폼](https://www.kamp-ai.kr) "정밀가공 품질보증 AI 데이터셋" (**실제 공개 데이터**) | 2022-08-23 ~ 2022-08-25 | 불합격률·센서 비교 조회, 자연어 질의, Grafana |
+
+**정밀가공 품질보증 데이터셋 (KAMP)**
+
+- **라이선스:** KAMP 이용약관을 따릅니다. 원본 파일은 저장소·이미지에 넣지 않고(`data/raw/`는 gitignore), 공개 서버에서는 전체를 내려받을 수 있는 목록 API(`GET /machining-quality`)를 basic-auth로 잠갔습니다. 집계(`/summary`)·자연어 질의·Grafana만 공개합니다.
+- **받는 법:** kamp-ai.kr에서 "정밀가공 품질보증 AI 데이터셋"을 내려받아, 압축 안의 `data/정밀가공_품질보증_데이터셋.csv`(원본 파일명)를 `data/raw/precision_machining_quality_dataset.csv`로 복사합니다. UTF-8, 1,085행 × 43열.
+- **구조:** 한 행 = 가공 1건. `SerialNo`, `ReceivedDateTime`, 센서 요약 40열(SpindleSpeed·SpindleLoad·ServoCurrent/ServoLoad X·Z1·Z2·Z3의 max·mean·min·std), `passorfail`(1=불합격(불량), 0=합격 — 99건, 9.1%).
+- **가정·처리**
+  - `ReceivedDateTime`에는 시간대 표기가 없어 **KST로 간주**했습니다 (가정).
+  - 센서 단위는 가이드북에 정의가 없어 **단위 미상(설비 원시값)** 으로 두고 컬럼명에 `_raw`를 붙였습니다 (`api/machining_quality.py`에 원본 → DB 컬럼 대응표).
+  - 전 행이 같은 값인 센서 열 13개(Z2축 8개, `_min` 5개)는 테이블에는 저장하고 조회·센서 비교에서는 뺍니다.
+  - 같은 `SerialNo`·같은 시각에 합격·불합격 행이 한 쌍씩 붙은 경우가 99쌍 있습니다. 두 행 모두 보존하고 `is_serial_conflict`로 표시합니다 (대리 키 `record_id`). **불합격 99건이 전부 이 쌍에 속해**, 중복 쌍을 빼면 불합격이 0건이 됩니다 — 라벨 노이즈인지 원본 기록 방식인지 확인하지 못했습니다.
+- **적재·갱신:** `api/load_machining_quality.py` (멱등 upsert, 적재 전후 행 수 출력). 원본 시각은 `source_received_at`에 그대로 두고, 조회 기준 시각 `received_at`은 `--replay-start`로 옮길 수 있습니다.
+
+```bash
+# compose (api 이미지 사용) - 원본 시각 그대로
+docker compose run --rm -v ./data:/data:ro api python load_machining_quality.py --csv /data/raw/precision_machining_quality_dataset.csv
+# 라이브 데모용 재생: 원본 첫 행이 지금이 되도록 received_at을 원본 간격 그대로 옮김 (약 55시간에 걸쳐 "도착")
+docker compose run --rm -v ./data:/data:ro api python load_machining_quality.py --csv /data/raw/precision_machining_quality_dataset.csv --replay-start now
+```
+
+- 조회는 항상 `received_at <= 지금`인 행만 봅니다 (재생 중 아직 도착하지 않은 행 숨김). 자연어 질의는 "2022년 8월 24일"처럼 원본 날짜로 물으면 원본 시각 기준으로 조회합니다.
+- Helm(`machiningData.enabled`, 서버에서 켬): CSV는 `deploy.sh`가 로컬 `data/raw/`에서 ConfigMap으로 올리고, 설치·업그레이드 훅 Job이 테이블이 비었을 때만 재생 적재, CronJob이 3일마다 03:00 KST 재생을 다시 시작합니다.
 
 ## 실행
 
@@ -213,7 +245,7 @@ curl -X POST http://localhost:8001/query -H 'Content-Type: application/json' \
 # -> answer + tool_calls: [{"name": "get_defect_summary", "input": {"equipment_ids": ["EQ-002"], "start": "...", "end": "..."}, "ok": true, "result": {...}}]
 ```
 
-- 도구 6개: `list_equipment`, `get_oee`, `get_defect_summary`, `get_anomalies`, `get_drift_alarms`, `get_daily_reports`(읽기 전용, 없는 날짜는 만들지 않고 알려줌) — 결과 필드 이름에 단위를 드러냄(`불량수량_개` 등), 기존 조회 API와 같은 계산 코드를 재사용 (`api/nlq_tools.py`)
+- 도구 8개: `list_equipment`, `get_oee`, `get_defect_summary`, `get_anomalies`, `get_drift_alarms`, `get_daily_reports`(읽기 전용, 없는 날짜는 만들지 않고 알려줌), `get_machining_quality_summary`·`get_machining_quality_records`(정밀가공 KAMP 데이터, 10-13 추가 — 결과에 데이터 보유 기간을 넣어 없는 기간은 없다고 답하게 함, 로컬 `qwen3:8b`로만 확인하고 Gemini 평가 전) — 결과 필드 이름에 단위를 드러냄(`불량수량_개` 등), 기존 조회 API와 같은 계산 코드를 재사용 (`api/nlq_tools.py`)
 - 인자 검증: 등록된 설비만, 시간대가 있는 ISO 8601, 최대 30일. 잘못된 인자는 오류 메시지를 LLM에 돌려줘 스스로 고치게 합니다.
 - 응답에 **호출한 도구·인자·결과**를 함께 돌려줘 답변의 근거를 확인할 수 있습니다. 도구 호출은 최대 3라운드, 그 뒤에는 도구 없이 답변만 받습니다.
 - 제공자 두 가지 (`api/nlq_providers.py`): Claude(`claude-opus-5`, strict 도구, 거절 시 서버측 `fallbacks="default"`) / Gemini(`gemini-flash-latest`, 수동 function calling). 요청의 `provider`, 환경변수 `NLQ_PROVIDER`, 키가 있는 제공자 순으로 고릅니다.
@@ -258,6 +290,7 @@ curl -X POST http://localhost:8001/query -H 'Content-Type: application/json' \
 - API `/metrics` (Prometheus 포맷) 노출 메트릭
   - `mes_equipment_oee`, `mes_equipment_availability`, `mes_equipment_quality_rate` — 설비별, 스크레이프 시점 기준 최근 1시간 집계
   - `mes_defect_qty` — 설비별·불량유형별, 스크레이프 시점 기준 최근 24시간 불량 수량
+  - `mes_machining_records{result}`, `mes_machining_fail_rate` — 정밀가공(KAMP) 최근 1시간에 도착한 가공 건수와 불합격률 (재생 적재일 때 의미, 원본 시각 적재면 비어 있음) — Grafana "정밀가공 불합격률", "정밀가공 도착 건수" 패널
   - `mes_http_requests_total`, `mes_http_request_duration_seconds` — API 요청 수·지연시간 (경로·메서드·상태코드별)
 - anomaly-worker `:9100/metrics` 노출 메트릭 (Prometheus가 `anomaly-worker:9100`을 스크레이프, 호스트에는 포트를 열지 않음)
   - `mes_anomaly_score` — 설비별, 직전 판정 주기에 판정한 생산실적 중 최대 이상 점수
@@ -465,11 +498,13 @@ kubectl scale deploy/mini-mes-simulator --replicas=1
 | 4주 | Helm 차트 작성 + k3d 로컬 검증 (Secret/PVC/probe, 서버 배포 대상은 미정). 5주차 이후 anomaly-worker(Deployment·모델 PVC·메트릭 Service), Prometheus·Grafana도 차트에 추가 | ✅ |
 | 5주 | 이상탐지(예지보전) 워커: 설비별 Isolation Forest + robust z-score(정상 데이터만 학습), `/anomalies` API, 급변·열화 경보 분리, 워커 메트릭·Grafana 패널, 시뮬레이터 라벨 기반 성능 평가(가상 데이터 기준 급변 F1 v1 0.525 → v2 0.959), 워커 단위 테스트·CI | ✅ |
 | 6주 | 자연어 질의 API(`POST /query`, Claude·Gemini function calling, 읽기 전용 도구 4개(09-29에 열화 경보·일일 리포트 추가해 6개), 근거 반환), 평가 스크립트 — Gemini 13/13 통과(건수·수량 혼동은 도구 필드 이름 수정 후 2회 확인, 시간대 혼동은 KST 변환 후 1회 확인), Claude 미평가 | ✅ |
+| 추가 (10-13) | 실제 공개 데이터 연동: KAMP 정밀가공 품질보증 데이터셋 테이블·멱등 적재(재생 옵션), 조회 API·CSV, 자연어 질의 도구 2개, 불합격률 메트릭·Grafana 패널, Helm 훅 Job·재생 CronJob, 목록 API 잠금 | 서버 배포 전 |
 | 7주 | Terraform(Oracle Cloud: VCN·보안 목록·A1 VM + cloud-init K3s), CI에서 amd64/arm64 이미지를 GHCR에 푸시·Terraform 검사, 문서화·데모 영상 — 10-02 VM 생성·서버 배포(Cloudflare Tunnel 공개), [시연 영상](https://youtu.be/lURO3deVYwU) | ✅ |
 
 ## 알려진 한계
 
-- 데이터는 시뮬레이터가 만든 가상 데이터이며 실제 설비 데이터가 아닙니다.
+- 설비 데이터(EQ-001~003)는 시뮬레이터가 만든 가상 데이터이며 실제 설비 데이터가 아닙니다. 실제 데이터는 정밀가공 품질(KAMP) 3일치뿐이고, 설비 테이블과 연결되지 않은 별도 도메인입니다 (이상탐지 미적용).
+- 정밀가공 데이터: 센서 단위·시간대는 가정(단위 미상, KST)이고, 불합격 99건이 전부 SerialNo 중복 쌍에 속해 라벨 신뢰도를 확인하지 못했습니다. Prometheus 지표는 수집을 시작한 뒤의 재생분만 남아, 원본 기간 전체 추이는 API·자연어 질의로 봅니다.
 - `db/schema.sql`은 DB 최초 생성 시 한 번만 적용됩니다. 새 테이블 추가처럼 모든 문장이 `IF NOT EXISTS`인 변경은 `docker compose exec -T db psql -U mes_user -d mini_mes < db/schema.sql`로 기존 DB에 적용할 수 있고, 컬럼 변경 등은 `docker compose down -v` 후 다시 띄워야 합니다 (모델 볼륨도 지워져 재학습 필요). 마이그레이션 도구는 쓰지 않습니다.
 - 이상탐지 관련 (상세는 [이상탐지 문서](docs/anomaly-detection.md#알려진-한계))
   - 성능 수치는 시뮬레이터가 만든 가상 데이터 기준이며, 시뮬레이터의 이상 패턴은 실제 고장 양상보다 단순합니다. 급변 recall 1.000은 쉬운 이상이라 나온 수치입니다.

@@ -83,7 +83,8 @@ PC (WSL2 · Docker)                                                        ↓
 |---|---|---|
 | 외부 노출 | SSH 22만, 내 IP/32만. `0.0.0.0/0`은 변수 validation에서 거부 | 공격 표면 최소화 |
 | K3s API | 6443을 열지 않고 SSH 터널(`ssh -L 16443:127.0.0.1:6443`)로 접속 | API 서버를 인터넷에 노출하지 않음. 공인 IP를 인증서(tls-san)에 넣을 필요도 없음 |
-| 방문자 공개 범위 | Traefik IngressRoute 규칙: GET·HEAD(`/metrics` 제외)와 `/grafana`는 공개, `POST /query`는 rateLimit, 그 밖은 basic-auth | API에 인증이 없어 쓰기 요청(가짜 생산실적 등록 등)을 그대로 열면 데이터가 오염됨. 조회·채팅은 방문자가 직접 써 볼 수 있게 |
+| 방문자 공개 범위 | Traefik IngressRoute 규칙: GET·HEAD(`/metrics`, `/machining-quality` 제외)와 `/grafana`는 공개, `POST /query`는 rateLimit, 그 밖은 basic-auth | API에 인증이 없어 쓰기 요청(가짜 생산실적 등록 등)을 그대로 열면 데이터가 오염됨. 조회·채팅은 방문자가 직접 써 볼 수 있게 |
+| 공개 데이터셋 원본 | KAMP CSV는 저장소·이미지에 넣지 않고 `deploy.sh`가 로컬 파일로 ConfigMap 생성, 전체를 CSV로 내려받는 `GET /machining-quality`는 basic-auth (집계 `/summary`는 공개) | 원본 재배포 방지 (KAMP 이용약관) |
 | `POST /query` 남용 | IP당 rateLimit(분당 약 3회, Traefik) + 하루 8건 상한(api, `NLQ_DAILY_LIMIT`, 넘으면 429) + 제공자 Gemini 고정(`NLQ_ALLOWED_PROVIDERS`) | Gemini 무료 등급은 하루 20회이고 질문 1건에 보통 2회 호출. 요청 본문의 `provider`로 다른(유료) 제공자를 고르지 못하게 |
 | 클라이언트 IP | Traefik Service `externalTrafficPolicy: Local` (`infra/k3s/traefik-config.yaml`) | ServiceLB를 거치며 출발지 IP가 바뀌면 rateLimit이 모든 방문자를 한 IP로 묶음 |
 | TLS | 공개 인증서는 Cloudflare 엣지, 터널 → Traefik 구간은 cert-manager 자체 서명 (cloudflared는 SNI를 실제 호스트로) | 80을 열지 않으면 Let's Encrypt HTTP-01을 쓸 수 없음. 80/443 직접 공개로 바꿀 때를 위해 `letsencrypt-prod` ClusterIssuer는 남겨 둠 |
@@ -114,7 +115,7 @@ PC (WSL2 · Docker)                                                        ↓
 - Terraform은 CI에서 자격 증명 없이 문법·구성만 검사하고, `plan`/`apply`는 로컬에서 합니다.
 - **자동 배포(CD)는 아직 없습니다.** 서버 SSH가 내 IP에만 열려 있어 GitHub Actions 러너가 접속할 수 없기 때문입니다. 배포는 `infra/k3s/deploy.sh <이미지 태그>`로 커밋 단위 태그를 지정해 합니다. 서버 안에서 이미지를 끌어오는 방식(pull 기반 GitOps)이 다음 후보입니다.
 
-## Helm 차트 (`charts/mini-mes/`, 0.8.0)
+## Helm 차트 (`charts/mini-mes/`, 0.9.0)
 
 | 구성 요소 | 리소스 | 비고 |
 |---|---|---|
@@ -125,6 +126,7 @@ PC (WSL2 · Docker)                                                        ↓
 | 일일 리포트 | CronJob | 매일 00:10 `Asia/Seoul`에 `POST /reports/daily` (전날 리포트 저장) |
 | 알림 | Grafana 알림 규칙 ConfigMap, 웹훅 Secret(optional) | 열화 경보·급변 이상 다발·수집 대상 다운·모델 없음 → Discord |
 | 데모 데이터 (`simulator.enabled`, 기본 꺼짐) | Deployment · ConfigMap(`files/simulate.py`) | api 이미지에 시뮬레이터 스크립트를 마운트해 실행 (별도 이미지 없음), 클러스터 안에서 api Service로 직접 전송 |
+| 정밀가공 데이터 (`machiningData.enabled`, 기본 꺼짐) | 훅 Job(post-install/upgrade) · CronJob · ConfigMap(optional) | api 이미지의 `load_machining_quality.py` 사용. 훅 Job은 테이블이 비었을 때만(`--if-empty`) 재생 적재해 배포할 때마다 재생이 처음으로 돌아가지 않게, CronJob은 3일마다 03:00 KST 재생 재시작. CSV ConfigMap이 없으면 건너뜀 |
 | 외부 공개 (`ingress.enabled`, 기본 꺼짐) | Certificate · Traefik IngressRoute · Middleware(redirect, basic-auth, rateLimit) | 켜면 Grafana를 `/grafana` 하위 경로로 제공(`GF_SERVER_ROOT_URL`), cert-manager·ClusterIssuer는 `deploy.sh`가 설치 |
 
 - `files/schema.sql`, `files/grafana-dashboard.json`, `files/grafana-alerting.yml`, `files/simulate.py`는 원본의 복사본입니다 (Helm은 차트 밖 파일을 못 읽음). CI의 chart 작업이 원본과 diff로 비교해 어긋나면 실패합니다.
@@ -146,6 +148,7 @@ PC (WSL2 · Docker)                                                        ↓
 | 2026-10-02 | 개인 PC k3d `mini-mes-demo` (k3s v1.36.4) + Cloudflare Tunnel | GHCR `latest`를 `values-oci.yaml` + `values-demo.yaml`로 배포, `tunnel.sh`로 터널·DNS·cloudflared 컨테이너 | 엣지 연결 4개(icn), 외부에서 `/chat`·`/grafana`·`/docs`·GET API 200, 인증 없는 `POST /equipment` 401, 스크립트 재실행 시 터널·DNS 재사용 (`/query`는 체험 한도 때문에 미호출) |
 | 2026-10-02 | **Oracle Cloud ap-osaka-1** A1 1 OCPU / 6GB, k3s v1.36.4 (arm64) | 유료(PAYG) 전환 직후 VM 생성(재시도 8회째) → `deploy.sh latest`(GHCR arm64 이미지) → 정상 데이터 300건×3으로 두 모델 학습 → `tunnel.sh`로 cloudflared Deployment, PC 터널 중지 | cloud-init 완료·K3s Ready, 파드 7개 Running·재시작 0회, 인증서 Ready(자체 서명), 외부에서 공개 경로 200·잠금 경로 인증 없이 401·인증 시 200, Grafana 기본 비밀번호 403, 응답이 서버 데이터임을 확인(판정 수) |
 | 2026-10-02 | Oracle Cloud ap-osaka-1 | 계정 전체 자원 읽기 전용 점검 → 할당량 정책(`quota.tf`) 적용 (plan에 VM 사양 변경이 끼어 tfvars를 실제 1/6으로 고정한 뒤 1개 추가만 적용) | 할당량 대상 자원 VM 1대·부트 볼륨 50GB·VCN 1개 (그 외 볼륨·백업·고정 IP·LB 없음), 이번 달 실제·예상 지출 0. 유효 한도 A1 2 OCPU(사용 1)·12GB(사용 6)·E4 0·스토리지 200GB(사용 50) |
+| 2026-10-13 | k3d (k3s v1.36.4 / Traefik 3.7.8), 차트 0.9.0 | 정밀가공 데이터 적재를 `deploy.sh`로 서버 values와 같이 배포 (로컬 이미지, 시뮬레이터 끔) | ConfigMap(512KB) server-side apply, 훅 Job 재생 적재 1,085행, `helm upgrade` 때 `--if-empty`로 건너뜀(loaded_at 그대로), CronJob 수동 실행 시 재생 재시작, `/machining-quality`·CSV·`/metrics` 인증 없이 401·인증 시 200, `/summary`·`/chat`·`/oee`·`/grafana/` 200. 같은 과정을 k3d 기본 이미지(Traefik 2.10)로 만든 클러스터에서는 모든 경로 404 (원인 미확인, 10-01 Traefik 2.11에서는 정상) |
 | 2026-10-06 | Oracle Cloud ap-osaka-1 | 카드 청구 문의로 Usage·Budget·Invoice API 읽기 전용 조회 → 할당량 정책에 쓰지 않는 유료 서비스 64개 0 추가 | 10-02~10-05 사용량은 A1 1 OCPU·6GB 상시, 무료 블록 볼륨, 아웃바운드 하루 0.02~0.04로 비용 전부 0 (청구 통화 SGD), 예산 실제·예상 지출 0, 인보이스 0건. 정책 ACTIVE(문장 73개), 적용 후 plan 변경 없음, 서버 /chat 200 |
 
 **아직 확인하지 못한 것**
@@ -165,6 +168,8 @@ PC (WSL2 · Docker)                                                        ↓
 | VM 생성 실패 `500-InternalError, Out of host capacity` | 오사카 리전 무료 ARM 재고 부족 (오사카는 가용 영역 1개) | 5분 간격 재시도 스크립트, 사양을 1 OCPU / 6GB로 낮춰 시도 |
 | 웹훅 URL이 없으면 Grafana가 시작하지 못함 | Discord 수신처는 URL 필수 (`could not find webhook url property`) | 연결되지 않는 예약 도메인(`.invalid`)을 기본값으로, 실제 URL은 뒤에 붙는 Secret이 덮어씀 (`envFrom`은 뒤의 값 우선) |
 | 서버에 데이터 공급원이 없음 (배포 전 발견) | 로컬에서는 시뮬레이터를 직접 실행. 서버에 그대로 배포하면 방문자의 질문에 "데이터 없음"만 나옴 | 차트에 시뮬레이터 Deployment 추가, 서버 values에서 켬 |
+| 운영 DB에 새 테이블을 추가하면 적재 upsert가 실패할 뻔함 (10-13, 배포 전 발견) | 서버 DB는 `schema.sql`이 다시 실행되지 않아 새 api 파드의 `create_all`이 ORM 모델대로 테이블을 만드는데, 모델에 UNIQUE(upsert 기준)와 `is_serial_conflict` 기본값이 없었음 | 모델에 schema.sql과 같은 제약·인덱스·기본값을 넣고, 빈 DB에서 `create_all` → 적재 → `--if-empty` → 재적재 순서로 재현해 확인 |
+| 새 api 이미지 없이 배포하면 적재 Job 실패 (10-13, k3d) | 서버 values는 GHCR `latest`를 쓰므로, 스크립트가 들어간 이미지가 올라가기 전에 배포하면 `load_machining_quality.py` 없음 | main 푸시 → CI의 GHCR 푸시 완료 뒤 배포 |
 | Grafana 기본 비밀번호로 로그인되는 것처럼 보임 | 익명 Viewer 접근이 켜져 있어 비밀번호가 틀려도 조회 API가 200 | 관리자 API(`/api/admin/settings`)로 다시 확인 → 기본 비밀번호는 401, 설정한 비밀번호만 200 |
 
 ## 한계와 다음 단계
