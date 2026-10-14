@@ -155,6 +155,37 @@ def test_summary_fail_rate_and_sensor_comparison(client, api_rows):
     assert (speed["pass_mean"], speed["fail_mean"], speed["effect_size"]) == (100.0, 90.0, None)
 
 
+@pytest.fixture()
+def api_predictions(api_rows):
+    """A-1은 학습 기간이라 예측 없음, A-2 합격→합격, A-3 쌍(불합격→불합격, 합격→불합격 오탐), 미래 행 예측은 숨김 대상.
+    행 삭제 시 ON DELETE CASCADE로 함께 지워진다"""
+    db = SessionLocal()
+    try:
+        ids = {(r.serial_no, r.pass_or_fail): r.record_id for r in db.query(models.MachiningQualityRecord)
+               .filter(models.MachiningQualityRecord.source_received_at >= API_START,
+                       models.MachiningQualityRecord.source_received_at < API_START + timedelta(days=1))}
+        for key, prob in {("A-2", 0): 0.1, ("A-3", 1): 0.9, ("A-3", 0): 0.6, ("A-future", 1): 0.8}.items():
+            db.add(models.MachiningPrediction(record_id=ids[key], fail_probability=prob, predicted_fail=int(prob >= 0.5),
+                                              model_name="logistic_regression", threshold=0.5,
+                                              trained_until=API_START + timedelta(hours=1, minutes=1),
+                                              train_rows=1, train_fail=0))
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_summary_prediction_compares_only_predicted_arrived_rows(client, api_predictions):
+    pred = client.get("/machining-quality/summary", params=API_RANGE).json()["prediction"]
+    assert (pred["evaluated"], pred["actual_fail"], pred["predicted_fail"]) == (3, 1, 2)   # A-1(학습)·미래 행 제외
+    assert (pred["true_positive"], pred["false_positive"], pred["false_negative"], pred["true_negative"]) == (1, 1, 0, 1)
+    assert (pred["precision"], pred["recall"], pred["agreement_rate"]) == (0.5, 1.0, 0.6667)
+    assert pred["note"]
+
+    no_conflict = client.get("/machining-quality/summary",
+                             params={**API_RANGE, "include_serial_conflict": "false"}).json()["prediction"]
+    assert (no_conflict["evaluated"], no_conflict["precision"], no_conflict["recall"]) == (1, None, None)
+
+
 @pytest.mark.parametrize("path, params, status", [
     ("/machining-quality", {"start": "2001-04-02T00:00:00+09:00", "end": "2001-04-01T00:00:00+09:00"}, 400),
     ("/machining-quality", {"pass_or_fail": 2}, 422),

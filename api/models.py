@@ -104,3 +104,22 @@ class MachiningQualityRecord(Base):
 # 센서 40열은 api/machining_quality.py의 대응표 그대로 (전부 단위 미상 원시값)
 for _column in SENSOR_COLUMNS.values():
     setattr(MachiningQualityRecord, _column, Column(Float, nullable=False))
+
+
+class MachiningPrediction(Base):
+    """정밀가공 합격/불합격 배치 예측 (anomaly-worker/machining_predict.py가 씀, API는 읽기만). schema.sql과 같은 정의"""
+    __tablename__ = "machining_prediction"
+    __table_args__ = (
+        CheckConstraint("fail_probability BETWEEN 0 AND 1"),
+        CheckConstraint("predicted_fail IN (0, 1)"),
+    )
+
+    record_id = Column(BigInteger, ForeignKey("machining_quality_record.record_id", ondelete="CASCADE"), primary_key=True)
+    fail_probability = Column(Float, nullable=False)
+    predicted_fail = Column(SmallInteger, nullable=False)
+    model_name = Column(String(40), nullable=False)
+    threshold = Column(Float, nullable=False)
+    trained_until = Column(TIMESTAMP(timezone=True), nullable=False)
+    train_rows = Column(Integer, nullable=False)
+    train_fail = Column(Integer, nullable=False)
+    predicted_at = Column(TIMESTAMP(timezone=True), server_default=text("now()"), nullable=False)

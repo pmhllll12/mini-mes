@@ -147,3 +147,17 @@ CREATE TABLE IF NOT EXISTS machining_quality_record (
 
 CREATE INDEX IF NOT EXISTS idx_machining_quality_record_received_at
     ON machining_quality_record (received_at);
+
+-- 정밀가공 합격/불합격 배치 예측 (anomaly-worker/machining_predict.py가 학습 기간 이후 행만 예측해 덮어씀)
+-- 지도 학습이라 설비 이상탐지(정상 데이터만 학습)와 별도. 원본 시각 기준으로 학습 기간과 예측 대상을 나눈다
+CREATE TABLE IF NOT EXISTS machining_prediction (
+    record_id        BIGINT PRIMARY KEY REFERENCES machining_quality_record (record_id) ON DELETE CASCADE,
+    fail_probability DOUBLE PRECISION NOT NULL CHECK (fail_probability BETWEEN 0 AND 1),
+    predicted_fail   SMALLINT NOT NULL CHECK (predicted_fail IN (0, 1)),
+    model_name       VARCHAR(40) NOT NULL,
+    threshold        DOUBLE PRECISION NOT NULL,
+    trained_until    TIMESTAMPTZ NOT NULL,        -- 원본 시각(source_received_at) 기준 학습 구간 끝 (미포함)
+    train_rows       INTEGER NOT NULL,
+    train_fail       INTEGER NOT NULL,
+    predicted_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);

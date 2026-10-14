@@ -1,5 +1,6 @@
 """
-정밀가공 품질(KAMP) 합격/불합격 지도 학습 오프라인 평가 (DB에 기록하지 않음, 서비스·워커에는 넣지 않음).
+정밀가공 품질(KAMP) 합격/불합격 지도 학습 오프라인 평가 (DB에 기록하지 않음).
+서비스에는 같은 로지스틱 회귀를 anomaly-worker/machining_predict.py로 학습 기간 이후 행에만 배치 예측해 붙였다.
 
 비지도 이상 점수(machining_anomaly_eval.py)로는 불합격을 거의 못 잡아(AUC 약 0.59), 라벨로 분류기를 학습해 본다.
 특징: 상수 열을 뺀 센서 27개 (machining_quality.FEATURE_COLUMNS). 모델: 로지스틱 회귀(표준화), 랜덤 포레스트.

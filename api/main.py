@@ -332,7 +332,8 @@ def get_machining_quality_summary(
     include_serial_conflict: bool = Query(True, description="false면 SerialNo 중복 행 제외"),
     db: Session = Depends(get_db),
 ):
-    """기간 전체·시간/일별 불합격률과 합격/불합격 그룹의 센서 평균 비교 (상수 열 제외, 차이가 큰 순)"""
+    """기간 전체·시간/일별 불합격률과 합격/불합격 그룹의 센서 평균 비교 (상수 열 제외, 차이가 큰 순).
+    prediction: 배치 예측(anomaly-worker/machining_predict.py)이 있으면 학습 기간 이후 행의 예측 vs 실제 판정"""
     start, end = mqq.resolve_range(start, end)
     if start and start > end:
         raise HTTPException(status_code=400, detail="start가 end(또는 지금)보다 늦습니다")

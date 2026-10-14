@@ -176,6 +176,27 @@ class MachiningSensorComparison(BaseModel):
     effect_size: Optional[float]
 
 
+class MachiningPredictionSummary(BaseModel):
+    """배치 예측(센서만 보고 불합격 확률) vs 실제 판정. 학습 기간(원본 시각 trained_until 이전) 이후 행만 대상"""
+    model: str
+    threshold: float
+    trained_until: datetime         # 원본 시각 기준 학습 구간 끝 (미포함)
+    train_rows: int
+    train_fail: int
+    predicted_at: datetime
+    evaluated: int                  # 조회 기간 안에서 예측이 있는(학습 기간 이후·도착한) 행 수
+    actual_fail: int
+    predicted_fail: int
+    true_positive: int
+    false_positive: int
+    false_negative: int
+    true_negative: int
+    precision: Optional[float]
+    recall: Optional[float]
+    agreement_rate: Optional[float]  # 예측과 실제 판정이 같은 비율
+    note: str
+
+
 class MachiningQualitySummaryOut(BaseModel):
     start: Optional[datetime]
     end: datetime
@@ -187,3 +208,4 @@ class MachiningQualitySummaryOut(BaseModel):
     buckets: List[MachiningQualityBucket]
     sensor_comparison: List[MachiningSensorComparison]   # 차이(|effect_size|)가 큰 순
     excluded_constant_columns: List[str]
+    prediction: Optional[MachiningPredictionSummary]   # 배치 예측을 실행하지 않았으면 null

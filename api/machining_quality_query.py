@@ -8,6 +8,8 @@
   "2022-08-24 불합격률"처럼 원본 날짜로 묻는 질문에 답하기 위함 (이때도 아직 도착하지 않은 행은 숨긴다)
 - SerialNo 중복 행(is_serial_conflict)은 원본에서 같은 시각에 0/1이 한 쌍으로 붙은 경우라 라벨 노이즈일 수 있어
   include_serial_conflict=False로 뺄 수 있게 한다 (현재 원본은 불합격 99건이 전부 이 쌍에 속함)
+- 예측 대조(prediction_summary)는 machining_prediction(워커 CLI의 배치 예측)이 있는 행만 센다. 예측은 학습 기간
+  이후 행에만 있으므로 같은 기간이라도 total보다 적다. 재생 중 아직 도착하지 않은 행의 예측은 다른 조회처럼 숨긴다
 """
 import math
 from datetime import datetime, timezone
@@ -17,6 +19,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from machining_quality import CONSTANT_COLUMNS, FEATURE_COLUMNS, KST, SENSOR_COLUMNS
+from models import MachiningPrediction as P
 from models import MachiningQualityRecord as R
 
 BUCKETS = ("hour", "day")
@@ -166,6 +169,66 @@ def summarize(
         "buckets": buckets,
         "sensor_comparison": comparison,
         "excluded_constant_columns": list(CONSTANT_COLUMNS),
+        "prediction": prediction_summary(db, start, end, include_serial_conflict, time_basis),
+    }
+
+
+PREDICTION_NOTE = (
+    "원본 시각 기준 학습 기간 이후 행만 예측한 배치 결과(실시간 아님). 표본이 작고(설비 1대·3일), "
+    "스핀들 부하 규칙 하나로도 F1 0.92라 라벨이 그 신호로 매겨졌을 가능성이 있어 일반화 성능으로 보면 안 됨"
+)
+
+
+def _ratio(part: int, total: int) -> Optional[float]:
+    return round(part / total, 4) if total else None
+
+
+def prediction_summary(
+    db: Session,
+    start: Optional[datetime],
+    end: datetime,
+    include_serial_conflict: bool,
+    time_basis: str = "received",
+) -> Optional[dict]:
+    """기간 안의 (도착한) 예측 행에서 예측 vs 실제 판정. 예측을 한 번도 실행하지 않았으면 None"""
+    model = db.query(P.model_name, P.threshold, P.trained_until, P.train_rows, P.train_fail,
+                     P.predicted_at).order_by(P.predicted_at.desc()).first()
+    if model is None:
+        return None
+    conds = _filters(start, end, include_serial_conflict, time_basis=time_basis)
+    actual, predicted = R.pass_or_fail == 1, P.predicted_fail == 1
+    row = (
+        db.query(
+            func.count(P.record_id),
+            func.count(P.record_id).filter(actual),
+            func.count(P.record_id).filter(predicted),
+            func.count(P.record_id).filter(actual & predicted),
+            func.count(P.record_id).filter(~actual & predicted),
+            func.count(P.record_id).filter(actual & ~predicted),
+        )
+        .join(R, R.record_id == P.record_id)
+        .filter(*conds)
+        .one()
+    )
+    n, n_actual, n_pred, tp, fp, fn = (int(v) for v in row)
+    return {
+        "model": model.model_name,
+        "threshold": model.threshold,
+        "trained_until": model.trained_until,
+        "train_rows": model.train_rows,
+        "train_fail": model.train_fail,
+        "predicted_at": model.predicted_at,
+        "evaluated": n,
+        "actual_fail": n_actual,
+        "predicted_fail": n_pred,
+        "true_positive": tp,
+        "false_positive": fp,
+        "false_negative": fn,
+        "true_negative": n - tp - fp - fn,
+        "precision": _ratio(tp, n_pred),
+        "recall": _ratio(tp, n_actual),
+        "agreement_rate": _ratio(n - fp - fn, n),
+        "note": PREDICTION_NOTE,
     }
 
 
