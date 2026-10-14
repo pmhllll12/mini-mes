@@ -51,7 +51,7 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 | GET | `/drift-alarms?equipment_ids=&hours=&format=json\|csv` | 기간과 겹치는 열화 경보 이력 (시작·해제 시각, 진행 중 여부, 지속 시간, 시작 점수), `format=csv`면 바로 내려받기 |
 | GET | `/export/production-logs?equipment_ids=&start=&end=` | 생산실적 CSV 다운로드 |
 | GET | `/machining-quality?start=&end=&pass_or_fail=&include_serial_conflict=&include_constant=&limit=&format=json\|csv` | 정밀가공 품질(KAMP) 가공 건 목록, `format=csv`면 바로 내려받기. 상수 열 13개는 기본 제외. 공개 서버에서는 basic-auth (원본 재배포 방지) |
-| GET | `/machining-quality/summary?start=&end=&bucket=hour\|day&include_serial_conflict=` | 정밀가공 불합격률(전체·KST 시/일별), 합격·불합격 그룹 간 차이가 큰 센서(효과크기 순) |
+| GET | `/machining-quality/summary?start=&end=&bucket=hour\|day&include_serial_conflict=` | 정밀가공 불합격률(전체·KST 시/일별), 합격·불합격 그룹 간 차이가 큰 센서(효과크기 순), 배치 예측이 있으면 `prediction`(예측 vs 실제 판정, 학습 기간 이후·도착한 행만) |
 | POST | `/query` | 자연어 질의 — LLM이 읽기 전용 도구를 호출해 답변 + 근거(호출한 도구·인자·결과) 반환 (API 키 필요) |
 
 ## 설비 status 규칙
@@ -234,8 +234,13 @@ docker compose logs -f anomaly-worker
 
 - 같은 v2 모델을 중복이 아닌 합격 행으로만 학습하고, 불합격 99건(전부 SerialNo 중복 쌍)을 이상으로 평가했습니다. 쌍 안의 두 행은 센서 값이 달라 행 단위로 나눴습니다.
 - 결과: AUC 약 0.59, 워커 기본 기준값(0.99)에서 recall 0.004. 쌍의 합격 행을 정상에 넣든 빼든 비슷합니다. 같은 쌍 안에서는 불합격 쪽 점수가 높은 비율이 0.75입니다.
-- 원인: 불합격은 센서 몇 개(예: `spindle_load_std`, 단독 AUC 0.91)에서만 조금 이동한 것이라, "얼마나 드문가"를 보는 비지도 점수에는 잘 드러나지 않습니다. 워커에는 적용하지 않았습니다.
+- 원인: 불합격은 센서 몇 개(예: `spindle_load_std`, 단독 AUC 0.91)에서만 조금 이동한 것이라, "얼마나 드문가"를 보는 비지도 점수에는 잘 드러나지 않습니다. 비지도 워커에는 적용하지 않았습니다.
 - **지도 학습**(`evaluate/machining_supervised_eval.py`, 쌍의 두 행을 같은 쪽에 두는 교차검증과 시간 순 분할): 로지스틱 회귀 AUC 0.988 / F1 0.942, 랜덤 포레스트 AUC 0.997 / F1 0.993 (교차검증). 쌍의 합격 행 오탐 0, 센서로 중복 여부를 가리는 대조 실험 AUC 약 0.5라 중복 기록이 아니라 불합격 자체를 구분합니다. 다만 스핀들 부하 3개로 만든 규칙 하나(깊이 2 트리)로도 F1 0.92라, 라벨이 이 신호로 매겨졌을 가능성이 있고 설비 1대·3일 데이터라 일반화는 확인하지 못했습니다.
+- **서비스 적용 (배치 예측, 2026-10-14):** `anomaly-worker/machining_predict.py`가 원본 08-23~24(675행, 불합격 65)로 로지스틱 회귀를 학습하고, 08-25(410행)만 예측해 `machining_prediction`에 저장합니다. `/machining-quality/summary`의 `prediction`이 도착한 행의 예측 vs 실제 판정을 보여 줍니다. 로컬 결과: 예측 불합격 32, 실제 불합격 34 중 32 일치(precision 1.000, recall 0.941, 오탐 0, 쌍의 합격 행 오탐 0). 실시간이 아니라 실행 시 한 번에 예측하는 배치이고, 위 해석 주의가 그대로 적용됩니다 (모델은 예측 결과를 보기 전에 두 후보 중 더 단순한 쪽으로 고정).
+
+```bash
+docker compose run --rm anomaly-worker python machining_predict.py [--train-until 2022-08-25] [--dry-run]   # 적재 후 1회
+```
 
 ## 자연어 질의 (LLM function calling)
 

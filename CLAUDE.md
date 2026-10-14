@@ -9,7 +9,7 @@ FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana, GitHub 
 ## 구조
 - api/ : FastAPI 앱 (main.py, models.py, schemas.py, oee.py, quality.py, anomaly.py, metrics.py, database.py, report.py 일일 리포트, nlq_tools.py 자연어 질의 읽기 전용 도구 8개(결과 필드명에 단위 표기, 결과 시각은 KST, 정밀가공 2개는 설비 ID 없이 time_basis received/source·데이터_보유_기간 포함), nlq_providers.py Claude·Gemini·OpenAI 호환(openai_compat, requests로 호출) 어댑터, nlq_quota.py 하루 질문 상한(NLQ_DAILY_LIMIT, 메모리·KST), static/chat.html 채팅 화면(/chat, / → /chat, 대시보드 링크는 GRAFANA_PUBLIC_URL), machining_quality*.py + load_machining_quality.py 정밀가공 품질(KAMP 공개 데이터셋, 설비와 별도 도메인) 매핑·조회·적재(멱등 upsert, --replay-start now 재생, --if-empty). CSV는 data/raw/(gitignore, 커밋 금지). ORM 모델에 schema.sql과 같은 UNIQUE·기본값을 둠(운영 DB에선 create_all이 테이블을 만들기 때문))
 - api/tests/ : pytest 테스트 (test_machining_quality.py는 같은 헤더의 작은 CSV를 만들어 적재·API 검사, raw SQL 적재 행은 SerialNo 접두어 LT-2001-로 직접 삭제) (Postgres 필요, db/schema.sql 적용된 DB 대상). conftest.py의 autouse fixture가 테스트 프로세스가 넣은 행(after_insert 추적)과 워커가 그 로그를 판정한 결과를 지우고 설비 status를 복원 (KEEP_TEST_DATA=1이면 유지)
-- anomaly-worker/ : 이상탐지 워커 컨테이너 (features.py 특징 추출, model.py 설비별 Isolation Forest + robust z-score 결합(v2, v1 번들도 호환), features.py build_features(--rolling-window 이동 구간 특징, 기본 꺼짐), train.py 학습 CLI, worker.py 주기 추론 + :9100 메트릭 + 급변/열화 경보 분리, db.py). 모델은 anomaly_models 볼륨(/models)에 저장. tests/는 DB 없이 실행
+- anomaly-worker/ : 이상탐지 워커 컨테이너 (features.py 특징 추출, model.py 설비별 Isolation Forest + robust z-score 결합(v2, v1 번들도 호환), features.py build_features(--rolling-window 이동 구간 특징, 기본 꺼짐), train.py 학습 CLI, worker.py 주기 추론 + :9100 메트릭 + 급변/열화 경보 분리, db.py, machining_predict.py 정밀가공 지도 학습 배치 예측 CLI(원본 08-23~24 학습 → 08-25만 예측 → machining_prediction 덮어쓰기, 적재 후 1회 수동 실행, FEATURE_COLUMNS는 api 복사본이라 테스트가 비교)). 모델은 anomaly_models 볼륨(/models)에 저장. tests/는 DB 없이 실행
 - evaluate/nlq_eval.py + nlq_questions.json : 자연어 질의 평가(도구 선택·인자·근거·단위·설비 언급(비교 질문은 누락도)·필드 나열·언어·안내 문구, --only로 일부만, --out에 도구 결과까지 저장 → evaluate/results/에 두면 gitignore, 채점 규칙을 바꾼 뒤 재채점용). 실제 LLM 호출이라 비용·무료 한도 소모 → 실행 전 사용자 확인
 - evaluate/drift_alarm_eval.py : 열화 경보 정책을 라벨 실행분에 오프라인 재생(워커의 DriftAlarm·모델 그대로)해 에피소드 지표 비교 (--policy 이름=raise/clear[,k=,h=,clear_z=] 여러 개, anomaly-worker 이미지에서 실행, 작업 트리 코드로 돌리려면 -v $PWD/anomaly-worker:/app)
 - evaluate/machining_anomaly_eval.py : 정밀가공(KAMP)에 워커 v2 모델을 오프라인 적용(DB 기록 없음). 학습=중복 아닌 합격, 평가 이상=쌍의 불합격, 쌍의 합격 행 포함/제외 비교 + 쌍 비교 지표, 시드 반복. anomaly-worker 이미지에서 -v $PWD/api:/api:ro 마운트. 10-13 결과 AUC 약 0.59(비지도로는 거의 못 잡음)
@@ -38,6 +38,7 @@ FastAPI + SQLAlchemy + PostgreSQL, Docker Compose, Prometheus + Grafana, GitHub 
 
 ## 이상탐지 규칙
 - 학습은 정상 데이터만 (시뮬레이터 --anomaly-rate 0 실행분, train.py --since로 구간 지정). 이상이 섞인 데이터로 학습하지 않는다
+- 위 규칙은 시뮬레이터 설비의 비지도 이상탐지용. 정밀가공(KAMP) 지도 학습은 불합격 라벨도 학습하되, 원본 시각으로 학습 기간과 예측 대상을 나누고(학습한 행은 예측하지 않음) 기준 확률 0.5를 평가 데이터로 조정하지 않는다
 - 평가는 학습과 다른 시뮬레이터 실행분으로만. threshold를 평가 데이터로 튜닝하지 않는다
 - 수치를 좋게 만들려고 시뮬레이터의 이상 데이터 생성 방식을 바꾸지 않는다
 - anomaly_result에는 log_id가 없음 → ts에 production_log.ts를 그대로 넣고 (equipment_id, ts)로 중복 방지

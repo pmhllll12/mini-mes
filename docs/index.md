@@ -73,7 +73,7 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 | 조회·집계 | `/oee`, `/quality/defect-summary`, `/anomalies`, `/drift-alarms` — 모두 `equipment_ids` 생략 시 전체 설비를 한 번에 조회 |
 | 내보내기 | `/export/production-logs` — 조건(기간·설비)을 넘기면 바로 CSV |
 | 자연어 질의 | `POST /query` — LLM(Claude·Gemini)이 읽기 전용 도구 8개를 골라 호출하고 답변과 근거(도구·인자·결과)를 반환. Gemini 13/13 통과(평가 세트 기준). 10-13에 추가한 정밀가공 도구 2개는 평가 세트에 아직 없고, Gemini·로컬 qwen3:8b로 질문 3~4개씩 직접 확인 (10-13) |
-| 실제 공개 데이터 | KAMP "정밀가공 품질보증 AI 데이터셋"(CNC 가공 1,085건, 2022-08-23~25): 멱등 적재·현재 시각 기준 재생, `/machining-quality`(목록·CSV, 공개 서버에서는 잠금)·`/summary`(불합격률·센서 비교), 자연어 질의 도구 2개, 불합격률 Grafana 패널. 원본 파일은 저장소에 두지 않음 |
+| 실제 공개 데이터 | KAMP "정밀가공 품질보증 AI 데이터셋"(CNC 가공 1,085건, 2022-08-23~25): 멱등 적재·현재 시각 기준 재생, `/machining-quality`(목록·CSV, 공개 서버에서는 잠금)·`/summary`(불합격률·센서 비교), 자연어 질의 도구 2개, 불합격률 Grafana 패널, 지도 학습 배치 예측(앞 2일 학습 → 마지막 날 예측, `/summary`에 예측 vs 실제). 원본 파일은 저장소에 두지 않음 |
 | 이상탐지 | 설비별 Isolation Forest 워커(별도 컨테이너), 정상 데이터만 학습, 모델은 볼륨에 저장 |
 | 모니터링 | API·워커 `/metrics` → Prometheus → Grafana 대시보드 (프로비저닝 파일로 자동 구성) |
 | CI | GitHub Actions: ruff, API 테스트(Postgres 서비스 컨테이너), 워커 단위 테스트, API·워커 이미지 빌드 |

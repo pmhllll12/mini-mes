@@ -115,7 +115,7 @@ PC (WSL2 · Docker)                                                        ↓
 - Terraform은 CI에서 자격 증명 없이 문법·구성만 검사하고, `plan`/`apply`는 로컬에서 합니다.
 - **자동 배포(CD)는 아직 없습니다.** 서버 SSH가 내 IP에만 열려 있어 GitHub Actions 러너가 접속할 수 없기 때문입니다. 배포는 `infra/k3s/deploy.sh <이미지 태그>`로 커밋 단위 태그를 지정해 합니다. 서버 안에서 이미지를 끌어오는 방식(pull 기반 GitOps)이 다음 후보입니다.
 
-## Helm 차트 (`charts/mini-mes/`, 0.9.0)
+## Helm 차트 (`charts/mini-mes/`, 0.9.1)
 
 | 구성 요소 | 리소스 | 비고 |
 |---|---|---|
