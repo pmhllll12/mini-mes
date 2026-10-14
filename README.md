@@ -288,7 +288,7 @@ curl -X POST http://localhost:8001/query -H 'Content-Type: application/json' \
                                                              [Grafana]
 ```
 
-이후 단계에서 자연어 질의 API를 추가할 예정입니다.
+자연어 질의(`POST /query`)는 FastAPI 안에서 LLM이 읽기 전용 도구를 호출해 같은 DB를 조회합니다 (위 "자연어 질의" 절).
 
 ## 모니터링 (Prometheus + Grafana)
 
