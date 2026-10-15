@@ -264,6 +264,8 @@ curl -X POST http://localhost:8001/query -H 'Content-Type: application/json' \
 - **API 키는 `.env`에만** 넣습니다: `cp .env.example .env` 후 `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` 입력 (`.env`는 커밋되지 않음). 키가 없으면 `/query`만 503이고 다른 API는 그대로 동작합니다.
 - 메트릭: `mes_nlq_requests_total{provider,outcome}`, `mes_nlq_tool_calls_total{provider,tool,ok}` — Grafana "자연어 질의 요청", "자연어 질의 도구 호출" 패널
 - **채팅 화면** `/chat` (`/`도 여기로): 질문을 입력하면 `/query`를 호출해 답변과 근거(도구·인자·결과 표)를 보여 주는 정적 페이지 (`api/static/chat.html`, 외부 라이브러리 없음). compose에서는 http://localhost:8001/chat
+  - 첫 방문 시 약 4초 "시스템 부팅 로그" 인트로(`api/static/intro.js`·`intro.css`, `/static`으로 서빙): 탭(세션)당 1회, `?intro=1`이면 강제 재생, 클릭·터치·키 입력으로 건너뛰기, `prefers-reduced-motion`이면 생략. 기존 화면 위에 덮는 오버레이라 질의 기능은 그대로이고, 끝나면 입력창에 포커스. 타이밍은 `intro.js` 상단 상수
+  - 상단 링크(Grafana·API 문서·설계 기록·GitHub)는 테두리 버튼으로 표시 (2026-10-15)
 - **공개 서버용 남용 방지:** 하루(KST) 질문 수 상한 `NLQ_DAILY_LIMIT`(0이면 없음, 넘으면 429, 남은 횟수는 `GET /query/quota`, 제공자 오류로 답을 못 준 질문은 세지 않음 - 503 과부하는 "잠시 뒤 다시 시도" 안내), 허용 제공자 `NLQ_ALLOWED_PROVIDERS`(요청 본문의 `provider`로 다른 제공자를 못 고르게, 403). 서버에서는 Gemini만·하루 8건 + Traefik의 IP당 rateLimit (아래 "Oracle Cloud K3s 배포")
 
 - 제공자: Claude·Gemini 외에 **OpenAI 호환 어댑터**(`openai_compat`, 로컬 Ollama·OpenAI·Groq 등 설정만으로). 로컬 모델 비교(10-01, RTX 3050, 같은 채점 규칙·1회 실행): **`qwen3:8b` 12/13**(실패 1개는 설비 ID 혼동, 생각 과정 때문에 평균 46초), `llama3.1:8b` 7/13(기간 계산 오류), `qwen2.5:7b-instruct` 6/13(중국어 답변·ID 추측), `granite3.3:8b` 1/13(도구 호출을 텍스트로 출력). 로컬 후보는 `qwen3:8b`뿐이지만 느려서 서비스 기본값은 Gemini 유지 (상세는 docs/nlq.md)

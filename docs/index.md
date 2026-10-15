@@ -19,7 +19,7 @@ Docker Compose → K3s/Helm → Terraform → CI/CD 순으로 인프라를 단�
 
 | | 주소 | 내용 |
 |---|---|---|
-| 자연어 질의 채팅 | [mes.pmhllll12.cloud/chat](https://mes.pmhllll12.cloud/chat) | 설비·OEE·불량·이상탐지를 자연어로 질문. 답변마다 근거(호출한 도구·인자·결과 표) 표시 |
+| 자연어 질의 채팅 | [mes.pmhllll12.cloud/chat](https://mes.pmhllll12.cloud/chat) | 설비·OEE·불량·이상탐지를 자연어로 질문. 답변마다 근거(호출한 도구·인자·결과 표) 표시. 첫 방문 시 약 4초 인트로(클릭·아무 키로 건너뛰기, [다시 보기](https://mes.pmhllll12.cloud/chat?intro=1)) |
 | Grafana 대시보드 | [mes.pmhllll12.cloud/grafana](https://mes.pmhllll12.cloud/grafana/) | OEE·불량·이상 점수·열화 경보·API 지표 (로그인 없이 조회) |
 | API 문서 | [mes.pmhllll12.cloud/docs](https://mes.pmhllll12.cloud/docs) | 조회 API는 바로 실행 가능, 데이터 등록은 잠금 |
 | 시연 영상 | [YouTube (1분 42초)](https://youtu.be/lURO3deVYwU) | 위 세 화면을 실제 서버에서 녹화 (2026-10-02). 채팅 한도가 찼을 때도 동작을 볼 수 있음 |
