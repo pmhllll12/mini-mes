@@ -25,7 +25,10 @@
   header { padding: 20px 0 12px; border-bottom: 1px solid var(--line); }
   header h1 { margin: 0; font-size: 20px; }
   header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
-  nav { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-size: 13px; }
+  nav { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; font-size: 14px; }
+  nav a { padding: 6px 14px; border: 1px solid var(--accent); border-radius: 999px; background: var(--panel);
+          font-weight: 600; line-height: 1.4; transition: background-color .15s, color .15s; }
+  nav a:hover, nav a:focus-visible { background: var(--accent); color: var(--accent-text); text-decoration: none; }
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; }
   #log { flex: 1; padding: 16px 0; display: flex; flex-direction: column; gap: 14px; }
