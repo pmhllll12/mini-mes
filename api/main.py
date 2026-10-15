@@ -10,6 +10,7 @@ from typing import List, Optional
 
 from fastapi import FastAPI, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -420,6 +421,10 @@ def natural_language_query_quota():
 # 채팅 화면 - /query를 부르는 정적 페이지. 대시보드 링크는 배포 환경마다 달라 GRAFANA_PUBLIC_URL로 받는다
 CHAT_HTML = (Path(__file__).parent / "static" / "chat.html").read_text(encoding="utf-8").replace(
     "__GRAFANA_URL__", os.getenv("GRAFANA_PUBLIC_URL", "").strip() or "http://localhost:3000")
+
+
+# 채팅 화면 보조 파일(intro.css·intro.js 인트로 애니메이션)
+app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 
 
 @app.get("/", include_in_schema=False)

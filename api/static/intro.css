@@ -1,0 +1,56 @@
+/* 채팅 화면 인트로 오버레이 (intro.js가 만들고 끝나면 제거). 색은 chat.html의 --accent·--bg를 그대로 쓴다 */
+.intro-lock, .intro-lock body { overflow: hidden; }
+
+.intro {
+  --intro-bg: #0d1117; --intro-fg: #c9d1d9; --intro-dim: #6e7681; --intro-ok: #3fb950;
+  position: fixed; inset: 0; z-index: 2147483000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px; background: var(--intro-bg); color: var(--intro-fg);
+  cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: none;
+  transition: background-color calc(var(--intro-fade-ms, 700ms) * .6) ease, opacity var(--intro-fade-ms, 700ms) ease;
+}
+
+/* 1단계: 부팅 로그 - 360px 폭에서도 한 줄(약 45자)이 넘치지 않게 글자 크기를 화면 폭에 맞춤 */
+.intro-log {
+  margin: 0; padding: 0; width: min(100%, 42em); background: none; border-radius: 0; overflow: visible; /* chat.html의 pre 스타일 덮어씀 */
+  font: clamp(10px, 2.75vw, 15px)/1.75 ui-monospace, SFMono-Regular, Menlo, Consolas, "D2Coding", monospace;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  transition: opacity var(--intro-logo-ms, 900ms) ease, filter var(--intro-logo-ms, 900ms) ease;
+}
+.intro-line { visibility: hidden; }
+.intro-line.is-visible { visibility: visible; }
+.intro-prompt { color: var(--intro-dim); }
+.intro-status { color: var(--intro-ok); font-weight: 600; opacity: 0; transition: opacity 120ms ease; }
+.intro-line.is-done .intro-status { opacity: 1; }
+.intro-line.is-active .intro-text::after {
+  content: ""; display: inline-block; width: .55em; height: 1.05em; margin-left: 1px;
+  vertical-align: text-bottom; background: var(--intro-fg); animation: intro-blink .7s steps(1) infinite;
+}
+@keyframes intro-blink { 50% { opacity: 0; } }
+
+/* 2단계: 로그가 흐려지고 로고 등장 */
+.intro-logo {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  opacity: 0; transform: translateY(6px); pointer-events: none;
+  transition: opacity calc(var(--intro-logo-ms, 900ms) * .7) ease, transform calc(var(--intro-logo-ms, 900ms) * .7) ease;
+}
+.intro-title {
+  font: 700 clamp(36px, 11vw, 64px)/1.1 system-ui, -apple-system, "Segoe UI", "Noto Sans KR", sans-serif;
+  letter-spacing: -.02em; color: #f0f3f6;
+}
+.intro-title span { color: var(--accent, #2f6fde); }
+.intro-sub { margin-top: 8px; font: 500 clamp(14px, 4vw, 18px)/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+             color: var(--intro-dim); letter-spacing: .04em; }
+.intro.is-logo .intro-log { opacity: .12; filter: blur(2px); }
+.intro.is-logo .intro-logo { opacity: 1; transform: none; }
+
+/* 3단계: 배경이 페이지 배경색으로 바뀌며 사라짐 */
+.intro.is-fading { background: var(--bg, #f6f7f9); opacity: 0; }
+.intro.is-fading .intro-log, .intro.is-fading .intro-logo { opacity: 0; }
+
+.intro-skip {
+  position: absolute; right: 16px; bottom: 16px; padding: 4px 10px; border: 1px solid #30363d; border-radius: 999px;
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--intro-dim);
+}
+.intro.is-logo .intro-skip, .intro.is-fading .intro-skip { opacity: 0; transition: opacity 200ms ease; }
+

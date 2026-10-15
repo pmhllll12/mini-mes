@@ -316,6 +316,9 @@ def test_chat_page_is_served(client):
     res = client.get("/chat")
     assert res.status_code == 200 and "/query" in res.text and "__GRAFANA_URL__" not in res.text
     assert client.get("/", follow_redirects=False).headers["location"] == "/chat"
+    assert "/static/intro.js" in res.text and "/static/intro.css" in res.text
+    for path in ("/static/intro.js", "/static/intro.css"):
+        assert client.get(path).status_code == 200
 
 
 # ---------- Claude 어댑터 ----------
